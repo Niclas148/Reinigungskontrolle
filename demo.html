@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1F3A5F">
+  <title>DEMO – Reinigungskontrolle – Kreisstadt Merzig</title>
+  <!-- Demo: dieselbe Seite, aber datastore.js wird durch Beispieldaten ersetzt -->
+  <script type="importmap">{ "imports": { "./datastore.js": "./demo-datastore.js" } }</script>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Reinigung">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="demo-leiste" role="region" aria-label="Demo-Modus">
+    <span><strong>Demo-Modus</strong> mit erfundenen Beispieldaten. Nichts wird in der echten Datenbank gespeichert.</span>
+    <span class="demo-knoepfe">
+      <button type="button" class="btn btn-klein" data-demo="hausmeister">Hausmeister-Ansicht</button>
+      <button type="button" class="btn btn-klein" data-demo="leitung">Leitungs-Ansicht</button>
+      <button type="button" class="btn btn-klein" data-demo="reset">Demo zurücksetzen</button>
+    </span>
+  </div>
+  <header id="kopf" class="kopf" hidden>
+    <div class="kopf-titel">
+      <img src="logo.png" alt="" class="logo" onerror="this.remove()">
+      <div>
+        <strong>Reinigungskontrolle</strong>
+        <span>Kreisstadt Merzig</span>
+      </div>
+    </div>
+    <div class="kopf-nutzer">
+      <span id="kopf-name"></span>
+      <button type="button" class="link" id="btn-installieren" hidden>Als App installieren</button>
+      <button type="button" class="link" id="btn-passwort">Passwort ändern</button>
+      <button type="button" class="link" id="btn-abmelden">Abmelden</button>
+    </div>
+  </header>
+  <nav id="tabs" class="tabs" hidden></nav>
+  <main id="inhalt" class="inhalt">
+    <p class="laden">Wird geladen …</p>
+  </main>
+  <div id="meldung" class="meldung" role="status" aria-live="polite"></div>
+  <script type="module" src="app.js"></script>
+  <script type="module">
+    import { demoRolle, demoZuruecksetzen } from "./demo-datastore.js";
+    document.querySelector(".demo-leiste").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-demo]");
+      if (!b) return;
+      if (b.dataset.demo === "reset") { if (confirm("Alle Änderungen in der Demo verwerfen?")) demoZuruecksetzen(); }
+      else demoRolle(b.dataset.demo);
+    });
+  </script>
+  <script>
+    // App-Installation (Handy-Startbildschirm)
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+    let installHinweis = null;
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      installHinweis = e;
+      document.getElementById("btn-installieren").hidden = false;
+    });
+    document.getElementById("btn-installieren").addEventListener("click", async () => {
+      if (!installHinweis) return;
+      installHinweis.prompt();
+      await installHinweis.userChoice;
+      installHinweis = null;
+      document.getElementById("btn-installieren").hidden = true;
+    });
+  </script>
+</body>
+</html>
