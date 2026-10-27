@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function angemeldet() { return request.auth != null; }
+    function profilPfad() { return /databases/$(database)/documents/benutzer/$(request.auth.uid); }
+    function profil() { return get(profilPfad()).data; }
+    function aktiv() { return angemeldet() && exists(profilPfad()) && profil().aktiv == true; }
+    function leitung() { return aktiv() && profil().rolle == 'leitung'; }
+
+    // Hausmeister darf nur für zugeordnete Einrichtungen erfassen
+    // (leere Liste = alle Einrichtungen)
+    function darfEinrichtung(einrichtungId) {
+      return profil().einrichtungen.size() == 0 || einrichtungId in profil().einrichtungen;
+    }
+
+    match /benutzer/{uid} {
+      allow read: if angemeldet() && (request.auth.uid == uid || leitung());
+      allow write: if leitung();
+    }
+
+    match /einrichtungen/{id} {
+      allow read: if aktiv();
+      allow write: if leitung();
+    }
+
+    match /kontrollen/{id} {
+      allow read: if aktiv();
+      allow create, update: if leitung() || (
+        aktiv()
+        && request.resource.data.erfasstVon == request.auth.uid
+        && request.resource.data.status in ['ok', 'mangel']
+        && id == request.resource.data.datum + '_' + request.resource.data.einrichtungId
+        && darfEinrichtung(request.resource.data.einrichtungId)
+        && request.resource.data.bemerkung.size() <= 500
+      );
+      allow delete: if leitung();
+    }
+  }
+}
