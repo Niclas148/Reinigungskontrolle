@@ -5,7 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1F3A5F">
   <title>Reinigungskontrolle – Kreisstadt Merzig</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Reinigung">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
@@ -14,11 +18,15 @@
 <body>
   <header id="kopf" class="kopf" hidden>
     <div class="kopf-titel">
-      <strong>Reinigungskontrolle</strong>
-      <span>Kreisstadt Merzig</span>
+      <img src="logo.png" alt="" class="logo" onerror="this.remove()">
+      <div>
+        <strong>Reinigungskontrolle</strong>
+        <span>Kreisstadt Merzig</span>
+      </div>
     </div>
     <div class="kopf-nutzer">
       <span id="kopf-name"></span>
+      <button type="button" class="link" id="btn-installieren" hidden>Als App installieren</button>
       <button type="button" class="link" id="btn-passwort">Passwort ändern</button>
       <button type="button" class="link" id="btn-abmelden">Abmelden</button>
     </div>
@@ -29,5 +37,22 @@
   </main>
   <div id="meldung" class="meldung" role="status" aria-live="polite"></div>
   <script type="module" src="app.js"></script>
+  <script>
+    // App-Installation (Handy-Startbildschirm)
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+    let installHinweis = null;
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      installHinweis = e;
+      document.getElementById("btn-installieren").hidden = false;
+    });
+    document.getElementById("btn-installieren").addEventListener("click", async () => {
+      if (!installHinweis) return;
+      installHinweis.prompt();
+      await installHinweis.userChoice;
+      installHinweis = null;
+      document.getElementById("btn-installieren").hidden = true;
+    });
+  </script>
 </body>
 </html>

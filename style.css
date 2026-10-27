@@ -151,6 +151,7 @@ textarea { min-height: 80px; resize: vertical; }
 .status-zeile.ok { color: var(--ok); }
 .status-zeile.mangel { color: var(--mangel); }
 .aktionen { display: flex; gap: .5rem; flex-wrap: wrap; }
+.trenner { margin-top: 1rem; padding-top: .6rem; border-top: 1px solid var(--linie); }
 .mangel-form { margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--linie); }
 
 /* Badges */
@@ -184,11 +185,12 @@ tr.zeile-mangel td:first-child { box-shadow: inset 4px 0 0 var(--mangel); }
   color: #fff;
   padding: .75rem 1.2rem;
   border-radius: 8px;
-  transition: transform .25s;
+  transition: transform .25s, visibility .25s;
+  visibility: hidden;
   max-width: calc(100% - 2rem);
   z-index: 20;
 }
-.meldung.sichtbar { transform: translate(-50%, 0); }
+.meldung.sichtbar { transform: translate(-50%, 0); visibility: visible; }
 .meldung.fehler-meldung { background: var(--mangel); }
 
 dialog { border: 0; border-radius: var(--radius); padding: 1.4rem; max-width: 420px; width: calc(100% - 2rem); }
@@ -201,3 +203,29 @@ dialog::backdrop { background: rgba(20, 30, 45, .45); }
   .aktionen { width: 100%; }
   .aktionen .btn { flex: 1; }
 }
+
+/* ---------- Erweiterungen ---------- */
+.kopf-titel { display: flex; align-items: center; gap: .8rem; }
+.logo { height: 40px; width: auto; background: #fff; border-radius: 4px; padding: 2px; }
+.kw { color: var(--text-leise); font-weight: 700; font-size: .95rem; margin: 0 0 .2rem; }
+.hinweis-box { background: var(--blau-hell); border-radius: 8px; padding: .6rem .8rem; }
+.gesperrt { font-size: .88rem; color: var(--text-leise); margin: .4rem 0 0; }
+.unterformular { margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--linie); }
+fieldset.gruppe { border: 0; padding: 0; margin: 0 0 .8rem; }
+fieldset.gruppe legend { font-weight: 700; padding: 0; margin-bottom: .2rem; }
+.bereich-raster { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); column-gap: 1rem; }
+.bereich-liste { display: flex; flex-wrap: wrap; gap: .35rem; margin: .5rem 0 0; }
+.chip { background: var(--mangel-hell); color: var(--mangel); border-radius: 99px; padding: .1rem .6rem; font-size: .85rem; font-weight: 700; }
+.nachtraege { margin: .5rem 0 0; padding-left: 1.1rem; font-size: .92rem; color: var(--text-leise); }
+.einrichtung[data-status="frei"] { border-left-color: var(--linie); opacity: .8; }
+.btn-klein { min-height: 36px; padding: .3rem .7rem; font-size: .9rem; }
+.tag-navi { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+.tag-navi input { width: auto; }
+.vorlagen { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
+.z-mangel { color: var(--mangel); }
+.z-offen { color: var(--offen); }
+.diagramme { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1rem; margin: 1rem 0 1.4rem; }
+.diagramme figure { margin: 0; }
+.diagramme figcaption { font-weight: 700; margin-bottom: .6rem; }
+.d-box { position: relative; height: 280px; }
+@media (max-width: 560px) { .diagramme { grid-template-columns: 1fr; } }

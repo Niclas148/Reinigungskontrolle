@@ -11,8 +11,8 @@ import {
   createUserWithEmailAndPassword, updatePassword
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc,
-  query, where, writeBatch
+  getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
+  query, where, writeBatch, arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig, LOGIN_DOMAIN } from "./firebase-config.js";
 
@@ -65,7 +65,7 @@ export async function passwortAendern(neu) {
     if ((e.code || "").includes("requires-recent-login")) {
       throw new Error("Bitte einmal ab- und wieder anmelden, dann erneut versuchen.");
     }
-    if ((e.code || "").includes("weak-password")) throw new Error("Das Passwort braucht mindestens 6 Zeichen.");
+    if ((e.code || "").includes("weak-password") || (e.code || "").includes("password-does-not-meet")) throw new Error("Das Passwort erfüllt die Passwortregeln nicht.");
     throw e;
   }
 }
@@ -99,14 +99,36 @@ export async function kontrollenZeitraum(von, bis) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-export async function saveKontrolle(k) {
+/**
+ * Legt die Kontrolle eines Tages an. Gibt es für diese Einrichtung und
+ * diesen Tag schon eine, wird nichts überschrieben (dann nur Nachtrag möglich).
+ */
+export async function neueKontrolle(k) {
   const id = `${k.datum}_${k.einrichtungId}`;
-  await setDoc(doc(db, "kontrollen", id), {
+  const ref = doc(db, "kontrollen", id);
+  if ((await getDoc(ref)).exists()) {
+    throw new Error("Für diese Einrichtung wurde heute schon eine Kontrolle gespeichert. Bitte Seite neu laden und einen Nachtrag erfassen.");
+  }
+  await setDoc(ref, {
     ...k,
+    nachtraege: [],
     erfasstVon: auth.currentUser.uid,
     erfasstAm: new Date().toISOString()
   });
   return id;
+}
+
+/** Hängt einen Nachtrag an. Ein nachgemeldeter Mangel setzt den Status auf "mangel". */
+export async function nachtragHinzufuegen(id, nachtrag, alterStatus) {
+  const eintrag = { ...nachtrag, von: auth.currentUser.uid, zeit: new Date().toISOString() };
+  const aenderung = { nachtraege: arrayUnion(eintrag) };
+  if (nachtrag.mangel && alterStatus !== "mangel") aenderung.status = "mangel";
+  await updateDoc(doc(db, "kontrollen", id), aenderung);
+}
+
+/** Nur für die Leitung (Notfall). */
+export async function loescheKontrolle(id) {
+  await deleteDoc(doc(db, "kontrollen", id));
 }
 
 // ---------- Benutzer ----------
@@ -118,14 +140,16 @@ export async function listBenutzer() {
 }
 
 /** Legt ein Login + Profil an, ohne die angemeldete Leitung abzumelden. */
-export async function createBenutzer({ benutzername, passwort, name, rolle, einrichtungen }) {
+export async function createBenutzer({ benutzername, passwort, name, vorname, nachname, rolle, einrichtungen }) {
   const zweitApp = initializeApp(firebaseConfig, "anlage-" + Date.now());
   const zweitAuth = getAuth(zweitApp);
   try {
     const cred = await createUserWithEmailAndPassword(zweitAuth, loginAdresse(benutzername), passwort);
     await setDoc(doc(db, "benutzer", cred.user.uid), {
-      name, benutzername: benutzername.trim().toLowerCase(), rolle,
-      einrichtungen: einrichtungen || [], aktiv: true
+      name, vorname: vorname || "", nachname: nachname || "",
+      benutzername: benutzername.trim().toLowerCase(), rolle,
+      einrichtungen: einrichtungen || [], aktiv: true,
+      passwortAendern: true
     });
     await signOut(zweitAuth);
   } catch (e) {
@@ -135,6 +159,11 @@ export async function createBenutzer({ benutzername, passwort, name, rolle, einr
     if (code.includes("invalid-email")) throw new Error("Benutzername darf nur Buchstaben, Zahlen, Punkt und Bindestrich enthalten.");
     throw e;
   }
+}
+
+/** Nach dem Pflicht-Passwortwechsel: Merker im eigenen Profil zurücksetzen. */
+export async function passwortWurdeGeaendert(uid) {
+  await updateDoc(doc(db, "benutzer", uid), { passwortAendern: false });
 }
 
 export async function updateBenutzer(uid, daten) {

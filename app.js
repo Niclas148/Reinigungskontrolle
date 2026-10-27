@@ -1,48 +1,17 @@
 import * as store from "./datastore.js";
+import {
+  $, esc, heute, fmtDatum, wochentag, TYPEN, TYP_PLURAL, melde, mitSperre,
+  zusammenfassen, detailsHtml, mangelFelderHtml, leseMangelFelder
+} from "./hilfen.js";
+import { freierTag, kwText } from "./kalender.js";
+import { tabAuswertung } from "./auswertung.js";
 import * as exporter from "./export.js";
-
-// ---------- Hilfsfunktionen ----------
-const $ = (s, el = document) => el.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const heute = () => new Date().toLocaleDateString("sv-SE"); // JJJJ-MM-TT, lokale Zeit
-const fmtDatum = (iso) => { const [y, m, d] = iso.split("-"); return `${d}.${m}.${y}`; };
-const wochentag = (iso) => new Date(iso + "T12:00").toLocaleDateString("de-DE", { weekday: "long" });
-const fmtZeit = (iso) => (iso ? new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "");
-const TYPEN = ["Grundschule", "Kita"];
-const TYP_PLURAL = { Grundschule: "Grundschulen", Kita: "Kitas" };
 
 const inhalt = $("#inhalt");
 const tabs = $("#tabs");
 let ich = null;
 let einrichtungen = [];
-
-let meldungTimer;
-function melde(text, fehler = false) {
-  const m = $("#meldung");
-  m.textContent = text;
-  m.classList.toggle("fehler-meldung", fehler);
-  m.classList.add("sichtbar");
-  clearTimeout(meldungTimer);
-  meldungTimer = setTimeout(() => m.classList.remove("sichtbar"), fehler ? 6000 : 3000);
-}
-
-async function mitSperre(button, fn) {
-  button.disabled = true;
-  try { await fn(); } catch (e) { console.error(e); melde(e.message || "Speichern fehlgeschlagen.", true); }
-  finally { button.disabled = false; }
-}
-
 const aktiveEinrichtungen = () => einrichtungen.filter((e) => e.aktiv !== false);
-
-function statusZeile(k) {
-  if (!k) return `<p class="status-zeile"><span class="badge offen">Noch nicht kontrolliert</span></p>`;
-  if (k.status === "ok") {
-    return `<p class="status-zeile ok"><span class="badge ok">In Ordnung</span> erfasst ${fmtZeit(k.erfasstAm)} Uhr von ${esc(k.erfasstVonName)}</p>`;
-  }
-  const punkte = [k.nichtGeputzt && "nicht geputzt", k.nichtSauber && "nicht sauber"].filter(Boolean).join(", ");
-  return `<p class="status-zeile mangel"><span class="badge mangel">Mangel</span> ${esc(punkte)}, erfasst ${fmtZeit(k.erfasstAm)} Uhr von ${esc(k.erfasstVonName)}</p>
-    ${k.bemerkung ? `<p class="status-zeile">„${esc(k.bemerkung)}“</p>` : ""}`;
-}
 
 // ---------- Start ----------
 store.onAuth(async (profil) => {
@@ -59,9 +28,56 @@ store.onAuth(async (profil) => {
   }
   $("#kopf").hidden = false;
   $("#kopf-name").textContent = profil.name;
-  if (profil.rolle === "leitung") zeigeLeitung("heute");
-  else { tabs.hidden = true; zeigeHausmeister(); }
+  if (profil.passwortAendern) return zeigeErstPasswort();
+  starteAnsicht();
 });
+
+function starteAnsicht() {
+  if (ich.rolle === "leitung") zeigeLeitung("heute");
+  else { tabs.hidden = true; zeigeHausmeister(); }
+}
+
+const MIN_PW = 8;
+function pruefePasswort(p1, p2) {
+  if (p1.length < MIN_PW) return `Das Passwort braucht mindestens ${MIN_PW} Zeichen.`;
+  if (!/[A-Za-zÄÖÜäöüß]/.test(p1) || !/[0-9]/.test(p1)) return "Das Passwort braucht Buchstaben und mindestens eine Zahl.";
+  if (p1 !== p2) return "Die Passwörter stimmen nicht überein.";
+  return "";
+}
+
+// Beim ersten Anmelden muss das Startpasswort ersetzt werden.
+function zeigeErstPasswort() {
+  tabs.hidden = true;
+  $("#btn-passwort").hidden = true;
+  inhalt.onclick = null;
+  inhalt.innerHTML = `
+    <form class="login panel" id="erst-pw">
+      <h1>Eigenes Passwort festlegen</h1>
+      <p class="untertitel">Hallo ${esc(ich.name)}, bitte ersetze das Startpasswort durch ein eigenes. Mindestens ${MIN_PW} Zeichen, mit Buchstaben und Zahl.</p>
+      <div class="feld"><label for="e-pw1">Neues Passwort</label><input type="password" id="e-pw1" autocomplete="new-password" required></div>
+      <div class="feld"><label for="e-pw2">Wiederholen</label><input type="password" id="e-pw2" autocomplete="new-password" required></div>
+      <p class="fehler" id="e-fehler"></p>
+      <button class="btn btn-primaer" type="submit" style="width:100%">Passwort speichern</button>
+    </form>`;
+  $("#erst-pw").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const p1 = $("#e-pw1").value, p2 = $("#e-pw2").value;
+    const fehler = pruefePasswort(p1, p2);
+    if (fehler) { $("#e-fehler").textContent = fehler; return; }
+    ev.submitter.disabled = true;
+    try {
+      await store.passwortAendern(p1);
+      await store.passwortWurdeGeaendert(ich.uid);
+      ich.passwortAendern = false;
+      $("#btn-passwort").hidden = false;
+      melde("Passwort gespeichert.");
+      starteAnsicht();
+    } catch (e) {
+      $("#e-fehler").textContent = e.message;
+      ev.submitter.disabled = false;
+    }
+  });
+}
 
 $("#btn-abmelden").addEventListener("click", () => store.logout());
 $("#btn-passwort").addEventListener("click", zeigePasswortDialog);
@@ -100,8 +116,8 @@ function zeigePasswortDialog() {
   d.innerHTML = `
     <form method="dialog" id="pw-form">
       <h2>Passwort ändern</h2>
-      <div class="feld"><label for="pw1">Neues Passwort</label><input type="password" id="pw1" minlength="6" autocomplete="new-password" required></div>
-      <div class="feld"><label for="pw2">Wiederholen</label><input type="password" id="pw2" minlength="6" autocomplete="new-password" required></div>
+      <div class="feld"><label for="pw1">Neues Passwort</label><input type="password" id="pw1" autocomplete="new-password" required></div>
+      <div class="feld"><label for="pw2">Wiederholen</label><input type="password" id="pw2" autocomplete="new-password" required></div>
       <p class="fehler" id="pw-fehler"></p>
       <div class="aktionen"><button class="btn btn-primaer" value="ok">Passwort speichern</button><button class="btn" value="abbruch" formnovalidate>Abbrechen</button></div>
     </form>`;
@@ -112,7 +128,8 @@ function zeigePasswortDialog() {
     if (ev.submitter?.value === "abbruch") return;
     ev.preventDefault();
     const p1 = $("#pw1", d).value, p2 = $("#pw2", d).value;
-    if (p1 !== p2) { $("#pw-fehler", d).textContent = "Die Passwörter stimmen nicht überein."; return; }
+    const fehler = pruefePasswort(p1, p2);
+    if (fehler) { $("#pw-fehler", d).textContent = fehler; return; }
     try {
       await store.passwortAendern(p1);
       d.close();
@@ -127,28 +144,31 @@ function zeigePasswortDialog() {
 async function zeigeHausmeister() {
   const datum = heute();
   const meine = aktiveEinrichtungen().filter((e) => !ich.einrichtungen?.length || ich.einrichtungen.includes(e.id));
+  inhalt.onclick = null;
   inhalt.innerHTML = `<p class="laden">Wird geladen …</p>`;
   let kontrollen;
   try { kontrollen = await store.kontrollenAm(datum); }
   catch (e) { console.error(e); inhalt.innerHTML = `<p class="fehler">Kontrollen konnten nicht geladen werden.</p>`; return; }
-  const nachEinrichtung = Object.fromEntries(kontrollen.map((k) => [k.einrichtungId, k]));
-  const erledigt = meine.filter((e) => nachEinrichtung[e.id]).length;
+  const nach = Object.fromEntries(kontrollen.map((k) => [k.einrichtungId, k]));
+  const erledigt = meine.filter((e) => nach[e.id]).length;
 
   if (!meine.length) {
     inhalt.innerHTML = `<p class="leer">Dir sind noch keine Einrichtungen zugeordnet. Bitte an die Leitung wenden.</p>`;
     return;
   }
-
+  const frei = freierTag(datum, "Kita"); // Wochenende oder Feiertag
   inhalt.innerHTML = `
     <section class="tageskopf">
+      <p class="kw">${kwText(datum)}</p>
       <h1>${wochentag(datum)}, ${fmtDatum(datum)}</h1>
+      ${frei ? `<p class="hinweis-box">Heute ist ${esc(frei)}. Ein Eintrag ist freiwillig.</p>` : ""}
       <p>${erledigt} von ${meine.length} Einrichtungen kontrolliert</p>
       <div class="fortschritt"><span style="width:${Math.round((erledigt / meine.length) * 100)}%"></span></div>
     </section>
     ${TYPEN.map((typ) => {
       const liste = meine.filter((e) => e.typ === typ);
       if (!liste.length) return "";
-      return `<h2 class="gruppe-titel">${TYP_PLURAL[typ]}</h2>` + liste.map((e) => karteHausmeister(e, nachEinrichtung[e.id])).join("");
+      return `<h2 class="gruppe-titel">${TYP_PLURAL[typ]}</h2>` + liste.map((e) => karteHausmeister(e, nach[e.id])).join("");
     }).join("")}`;
 
   inhalt.onclick = async (ev) => {
@@ -156,75 +176,117 @@ async function zeigeHausmeister() {
     if (!btn) return;
     const karte = btn.closest(".einrichtung");
     const e = einrichtungen.find((x) => x.id === karte.dataset.id);
-    const form = $(".mangel-form", karte);
+    const k = nach[e.id];
     const aktion = btn.dataset.aktion;
+    const formular = (name) => $(`[data-form=${name}]`, karte);
 
     if (aktion === "ok") {
+      if (!confirm(`${e.name} als „Alles sauber“ speichern?\n\nDanach kann der Eintrag nicht mehr geändert, sondern nur noch ergänzt werden.`)) return;
       await mitSperre(btn, async () => {
-        await speichere(datum, e, { status: "ok", nichtGeputzt: false, nichtSauber: false, bemerkung: "" });
+        await store.neueKontrolle(basisKontrolle(datum, e, { status: "ok", nichtGeputzt: false, nichtSauber: false, bereiche: [], bemerkung: "" }));
         melde(`${e.name}: als sauber gespeichert.`);
         zeigeHausmeister();
       });
-    } else if (aktion === "mangel-oeffnen") {
-      const offen = form.hidden;
-      form.hidden = !offen;
-      btn.setAttribute("aria-pressed", String(offen));
-      if (offen) $("input", form).focus();
+    } else if (aktion === "mangel-oeffnen" || aktion === "nachtrag-oeffnen") {
+      const f = formular(aktion === "mangel-oeffnen" ? "mangel" : "nachtrag");
+      const oeffnen = f.hidden;
+      f.hidden = !oeffnen;
+      btn.setAttribute("aria-pressed", String(oeffnen));
+      if (oeffnen) $("input, textarea", f).focus();
     } else if (aktion === "mangel-speichern") {
-      const nichtGeputzt = $("[name=nichtGeputzt]", form).checked;
-      const nichtSauber = $("[name=nichtSauber]", form).checked;
-      if (!nichtGeputzt && !nichtSauber) { melde("Bitte ankreuzen, was nicht in Ordnung ist.", true); return; }
+      const f = formular("mangel");
       await mitSperre(btn, async () => {
-        await speichere(datum, e, { status: "mangel", nichtGeputzt, nichtSauber, bemerkung: $("textarea", form).value.trim() });
+        const felder = leseMangelFelder(f);
+        if (!confirm(`Mangel für ${e.name} speichern?\n\nDanach kann der Eintrag nicht mehr geändert, sondern nur noch ergänzt werden.`)) return;
+        await store.neueKontrolle(basisKontrolle(datum, e, { status: "mangel", ...felder, bemerkung: $("textarea", f).value.trim() }));
         melde(`${e.name}: Mangel gespeichert.`);
         zeigeHausmeister();
       });
+    } else if (aktion === "nachtrag-speichern") {
+      const f = formular("nachtrag");
+      await mitSperre(btn, async () => {
+        const text = $("textarea", f).value.trim();
+        const mitMangel = $("[name=nachtragMangel]", f).checked;
+        let mangel = { mangel: false, nichtGeputzt: false, nichtSauber: false, bereiche: [] };
+        if (mitMangel) mangel = { mangel: true, ...leseMangelFelder($("[data-mangelfelder]", f)) };
+        if (!text && !mitMangel) throw new Error("Bitte einen Text eingeben oder einen Mangel ankreuzen.");
+        await store.nachtragHinzufuegen(k.id, { ...mangel, text, vonName: ich.name }, k.status);
+        melde(`${e.name}: Nachtrag gespeichert.`);
+        zeigeHausmeister();
+      });
     } else if (aktion === "abbrechen") {
-      form.hidden = true;
-      $("[data-aktion=mangel-oeffnen]", karte).setAttribute("aria-pressed", "false");
+      btn.closest("[data-form]").hidden = true;
+      karte.querySelectorAll("[aria-pressed]").forEach((b) => b.setAttribute("aria-pressed", "false"));
+    }
+  };
+
+  inhalt.onchange = (ev) => {
+    if (ev.target.name === "nachtragMangel") {
+      $("[data-mangelfelder]", ev.target.closest("[data-form]")).hidden = !ev.target.checked;
     }
   };
 }
 
 function karteHausmeister(e, k) {
-  const vorbelegt = k?.status === "mangel";
+  const status = k ? zusammenfassen(k).status : "offen";
+  const id = esc(e.id);
+  if (!k) {
+    return `
+    <article class="einrichtung" data-id="${id}" data-status="offen">
+      <div class="einrichtung-kopf">
+        <div>
+          <div class="einrichtung-name">${esc(e.name)}</div>
+          ${e.adresse ? `<div class="einrichtung-adresse">${esc(e.adresse)}</div>` : ""}
+        </div>
+        <div class="aktionen">
+          <button type="button" class="btn btn-ok" data-aktion="ok">Alles sauber</button>
+          <button type="button" class="btn btn-mangel" data-aktion="mangel-oeffnen" aria-pressed="false">Mangel melden</button>
+        </div>
+      </div>
+      ${detailsHtml(null)}
+      <div class="unterformular" data-form="mangel" hidden>
+        ${mangelFelderHtml(e.typ, "m-" + id)}
+        <div class="feld">
+          <label for="b-${id}">Bemerkung <span class="hinweis">(freiwillig)</span></label>
+          <textarea id="b-${id}" maxlength="500" placeholder="z. B. Toiletten im Erdgeschoss, Mülleimer voll"></textarea>
+        </div>
+        <div class="aktionen">
+          <button type="button" class="btn btn-primaer" data-aktion="mangel-speichern">Mangel speichern</button>
+          <button type="button" class="btn" data-aktion="abbrechen">Abbrechen</button>
+        </div>
+      </div>
+    </article>`;
+  }
   return `
-  <article class="einrichtung" data-id="${esc(e.id)}" data-status="${k ? k.status : "offen"}">
+  <article class="einrichtung" data-id="${id}" data-status="${status}">
     <div class="einrichtung-kopf">
       <div>
         <div class="einrichtung-name">${esc(e.name)}</div>
         ${e.adresse ? `<div class="einrichtung-adresse">${esc(e.adresse)}</div>` : ""}
       </div>
       <div class="aktionen">
-        <button type="button" class="btn btn-ok" data-aktion="ok">Alles sauber</button>
-        <button type="button" class="btn btn-mangel" data-aktion="mangel-oeffnen" aria-pressed="false">Mangel melden</button>
+        <button type="button" class="btn" data-aktion="nachtrag-oeffnen" aria-pressed="false">Nachtrag hinzufügen</button>
       </div>
     </div>
-    ${statusZeile(k)}
-    <div class="mangel-form" hidden>
-      <label class="check"><input type="checkbox" name="nichtGeputzt" ${vorbelegt && k.nichtGeputzt ? "checked" : ""}> Es wurde nicht geputzt</label>
-      <label class="check"><input type="checkbox" name="nichtSauber" ${vorbelegt && k.nichtSauber ? "checked" : ""}> Es ist nicht sauber</label>
-      <div class="feld" style="margin-top:.6rem">
-        <label for="b-${esc(e.id)}">Bemerkung <span class="hinweis">(freiwillig)</span></label>
-        <textarea id="b-${esc(e.id)}" maxlength="500" placeholder="z. B. Toiletten im Erdgeschoss, Mülleimer voll">${vorbelegt ? esc(k.bemerkung) : ""}</textarea>
+    ${detailsHtml(k)}
+    <p class="gesperrt">Gespeichert und gesperrt. Ergänzungen nur als Nachtrag.</p>
+    <div class="unterformular" data-form="nachtrag" hidden>
+      <div class="feld">
+        <label for="n-${id}">Nachtrag</label>
+        <textarea id="n-${id}" maxlength="500" placeholder="Was möchtest du ergänzen?"></textarea>
       </div>
+      <label class="check"><input type="checkbox" name="nachtragMangel"> Zusätzlichen Mangel melden</label>
+      <div data-mangelfelder hidden>${mangelFelderHtml(e.typ, "n-" + id)}</div>
       <div class="aktionen">
-        <button type="button" class="btn btn-primaer" data-aktion="mangel-speichern">Mangel speichern</button>
+        <button type="button" class="btn btn-primaer" data-aktion="nachtrag-speichern">Nachtrag speichern</button>
         <button type="button" class="btn" data-aktion="abbrechen">Abbrechen</button>
       </div>
     </div>
   </article>`;
 }
 
-function speichere(datum, e, werte) {
-  return store.saveKontrolle({
-    datum,
-    einrichtungId: e.id,
-    einrichtungName: e.name,
-    einrichtungTyp: e.typ,
-    erfasstVonName: ich.name,
-    ...werte
-  });
+function basisKontrolle(datum, e, werte) {
+  return { datum, einrichtungId: e.id, einrichtungName: e.name, einrichtungTyp: e.typ, erfasstVonName: ich.name, ...werte };
 }
 
 // ============================================================
@@ -244,152 +306,78 @@ function zeigeLeitung(tab) {
     `<button type="button" data-tab="${id}" ${id === tab ? 'aria-current="page"' : ""}>${titel}</button>`).join("");
   tabs.onclick = (ev) => { const b = ev.target.closest("[data-tab]"); if (b) zeigeLeitung(b.dataset.tab); };
   inhalt.onclick = null;
+  inhalt.onchange = null;
   inhalt.innerHTML = `<p class="laden">Wird geladen …</p>`;
-  ({ heute: tabHeute, auswertung: tabAuswertung, einrichtungen: tabEinrichtungen, benutzer: tabBenutzer, sicherung: tabSicherung })[tab]();
+  const ansichten = {
+    heute: () => tabHeute(),
+    auswertung: () => tabAuswertung(inhalt, { einrichtungen, ich }),
+    einrichtungen: tabEinrichtungen,
+    benutzer: tabBenutzer,
+    sicherung: tabSicherung
+  };
+  Promise.resolve(ansichten[tab]()).catch((e) => { console.error(e); inhalt.innerHTML = `<p class="fehler">Laden fehlgeschlagen: ${esc(e.message)}</p>`; });
 }
 
 // ---------- Tagesübersicht ----------
+const tagVerschieben = (iso, tage) => { const d = new Date(iso + "T12:00"); d.setDate(d.getDate() + tage); return d.toLocaleDateString("sv-SE"); };
+
 async function tabHeute(datum = heute()) {
   const kontrollen = await store.kontrollenAm(datum);
   const nach = Object.fromEntries(kontrollen.map((k) => [k.einrichtungId, k]));
   const liste = aktiveEinrichtungen();
-  const ok = liste.filter((e) => nach[e.id]?.status === "ok").length;
-  const mangel = liste.filter((e) => nach[e.id]?.status === "mangel").length;
-  const offen = liste.length - ok - mangel;
+  let ok = 0, mangel = 0, offen = 0, frei = 0;
+  for (const e of liste) {
+    const k = nach[e.id];
+    if (k) zusammenfassen(k).status === "mangel" ? mangel++ : ok++;
+    else freierTag(datum, e.typ) ? frei++ : offen++;
+  }
 
   inhalt.innerHTML = `
-    <div class="raster" style="margin-bottom:1rem">
-      <div><label for="t-datum">Tag</label><input type="date" id="t-datum" value="${datum}"></div>
+    <div class="tag-navi">
+      <button type="button" class="btn" data-tag="-1" aria-label="Vorheriger Tag">‹</button>
+      <input type="date" id="t-datum" value="${datum}" aria-label="Tag">
+      <button type="button" class="btn" data-tag="1" aria-label="Nächster Tag">›</button>
+      <button type="button" class="btn" data-tag="0">Heute</button>
     </div>
+    <p class="kw">${kwText(datum)}</p>
     <h1>${wochentag(datum)}, ${fmtDatum(datum)}</h1>
     <div class="zaehler">
       <span><strong>${ok}</strong>in Ordnung</span>
-      <span style="color:var(--mangel)"><strong>${mangel}</strong>mit Mangel</span>
-      <span style="color:var(--offen)"><strong>${offen}</strong>noch offen</span>
+      <span class="z-mangel"><strong>${mangel}</strong>mit Mangel</span>
+      <span class="z-offen"><strong>${offen}</strong>noch offen</span>
+      ${frei ? `<span class="z-offen"><strong>${frei}</strong>frei (Wochenende, Feiertag, Ferien)</span>` : ""}
     </div>
     ${liste.length ? "" : `<p class="leer">Noch keine Einrichtungen angelegt. Unter „Einrichtungen“ hinzufügen.</p>`}
     ${TYPEN.map((typ) => {
       const l = liste.filter((e) => e.typ === typ);
       if (!l.length) return "";
-      return `<h2 class="gruppe-titel">${TYP_PLURAL[typ]}</h2>` + l.map((e) => `
-        <article class="einrichtung" data-status="${nach[e.id] ? nach[e.id].status : "offen"}">
-          <div class="einrichtung-name">${esc(e.name)}</div>
-          ${statusZeile(nach[e.id])}
-        </article>`).join("");
+      return `<h2 class="gruppe-titel">${TYP_PLURAL[typ]}</h2>` + l.map((e) => {
+        const k = nach[e.id];
+        const grund = !k && freierTag(datum, e.typ);
+        return `
+        <article class="einrichtung" data-status="${k ? zusammenfassen(k).status : grund ? "frei" : "offen"}">
+          <div class="einrichtung-kopf">
+            <div class="einrichtung-name">${esc(e.name)}</div>
+            ${k ? `<button type="button" class="btn btn-klein" data-loeschen="${esc(k.id)}" data-name="${esc(e.name)}">Eintrag löschen</button>` : ""}
+          </div>
+          ${grund ? `<p class="status-zeile"><span class="badge offen">Frei</span> ${esc(grund)}</p>` : detailsHtml(k)}
+        </article>`;
+      }).join("");
     }).join("")}`;
+
   $("#t-datum").addEventListener("change", (ev) => ev.target.value && tabHeute(ev.target.value));
-}
-
-// ---------- Auswertung ----------
-function werktage(von, bis) {
-  const tage = [];
-  for (let d = new Date(von + "T12:00"); d <= new Date(bis + "T12:00"); d.setDate(d.getDate() + 1)) {
-    const wt = d.getDay();
-    if (wt !== 0 && wt !== 6) tage.push(d.toLocaleDateString("sv-SE"));
-  }
-  return tage;
-}
-
-let letzteAuswertung = null;
-
-function tabAuswertung() {
-  const jetzt = new Date();
-  const monatsanfang = new Date(jetzt.getFullYear(), jetzt.getMonth(), 1).toLocaleDateString("sv-SE");
-  inhalt.innerHTML = `
-    <h1>Auswertung</h1>
-    <form class="panel" id="a-form">
-      <div class="raster">
-        <div><label for="a-von">Von</label><input type="date" id="a-von" value="${monatsanfang}" required></div>
-        <div><label for="a-bis">Bis</label><input type="date" id="a-bis" value="${heute()}" required></div>
-        <div><label for="a-typ">Art</label>
-          <select id="a-typ"><option value="">Alle</option>${TYPEN.map((t) => `<option>${t}</option>`).join("")}</select></div>
-        <div><label for="a-einr">Einrichtung</label>
-          <select id="a-einr"><option value="">Alle</option>${einrichtungen.map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join("")}</select></div>
-      </div>
-      <label class="check" style="margin-top:.8rem"><input type="checkbox" id="a-nur-maengel"> In den Einzelkontrollen nur Mängel aufführen</label>
-      <button class="btn btn-primaer" type="submit" style="margin-top:.6rem">Auswertung anzeigen</button>
-    </form>
-    <div id="a-ergebnis"></div>`;
-  $("#a-form").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const btn = ev.submitter;
-    await mitSperre(btn, berechneAuswertung);
-  });
-}
-
-async function berechneAuswertung() {
-  const von = $("#a-von").value, bis = $("#a-bis").value;
-  if (von > bis) { melde("„Von“ liegt nach „Bis“.", true); return; }
-  const typ = $("#a-typ").value, einrId = $("#a-einr").value, nurMaengel = $("#a-nur-maengel").checked;
-
-  const alle = await store.kontrollenZeitraum(von, bis);
-  const relevant = einrichtungen.filter((e) =>
-    (einrId ? e.id === einrId : e.aktiv !== false) && (!typ || e.typ === typ));
-  const ids = new Set(relevant.map((e) => e.id));
-  const gefiltert = alle.filter((k) => ids.has(k.einrichtungId))
-    .sort((a, b) => a.datum.localeCompare(b.datum) || a.einrichtungName.localeCompare(b.einrichtungName, "de"));
-  const wt = werktage(von, bis);
-
-  const uebersicht = relevant.map((e) => {
-    const ks = gefiltert.filter((k) => k.einrichtungId === e.id);
-    const tageMitEintrag = new Set(ks.map((k) => k.datum));
-    return {
-      name: e.name, typ: e.typ,
-      kontrollen: ks.length,
-      ok: ks.filter((k) => k.status === "ok").length,
-      mangel: ks.filter((k) => k.status === "mangel").length,
-      ohneEintrag: wt.filter((t) => !tageMitEintrag.has(t)).length
-    };
-  });
-  const einzel = nurMaengel ? gefiltert.filter((k) => k.status === "mangel") : gefiltert;
-
-  const filterTeile = [typ ? TYP_PLURAL[typ] : "alle Einrichtungen"];
-  if (einrId) filterTeile[0] = relevant[0]?.name || "eine Einrichtung";
-  if (nurMaengel) filterTeile.push("Einzelkontrollen nur Mängel");
-  letzteAuswertung = { von, bis, filterText: filterTeile.join(", "), erstelltVon: ich.name, uebersicht, einzel };
-
-  const summe = uebersicht.reduce((s, z) => ({ k: s.k + z.kontrollen, m: s.m + z.mangel, o: s.o + z.ohneEintrag }), { k: 0, m: 0, o: 0 });
-
-  $("#a-ergebnis").innerHTML = `
-    <div class="export-leiste">
-      <button class="btn btn-primaer" type="button" data-export="pdf">PDF herunterladen</button>
-      <button class="btn" type="button" data-export="xlsx">Excel herunterladen</button>
-      <button class="btn" type="button" data-export="mail">Per Mail senden</button>
-    </div>
-    <div class="zaehler">
-      <span><strong>${summe.k}</strong>Kontrollen</span>
-      <span style="color:var(--mangel)"><strong>${summe.m}</strong>mit Mangel</span>
-      <span style="color:var(--offen)"><strong>${summe.o}</strong>Werktage ohne Eintrag</span>
-    </div>
-    <h2>Übersicht je Einrichtung</h2>
-    <div class="tabelle-wrap"><table>
-      <thead><tr><th>Einrichtung</th><th>Art</th><th class="zahl">Kontrollen</th><th class="zahl">In Ordnung</th><th class="zahl">Mängel</th><th class="zahl">Werktage ohne Eintrag</th></tr></thead>
-      <tbody>${uebersicht.map((z) => `<tr class="${z.mangel ? "zeile-mangel" : ""}">
-        <td>${esc(z.name)}</td><td>${esc(z.typ)}</td><td class="zahl">${z.kontrollen}</td><td class="zahl">${z.ok}</td>
-        <td class="zahl">${z.mangel}</td><td class="zahl">${z.ohneEintrag}</td></tr>`).join("")}</tbody>
-    </table></div>
-    <h2 style="margin-top:1.6rem">Einzelkontrollen</h2>
-    ${einzel.length ? `<div class="tabelle-wrap"><table>
-      <thead><tr><th>Datum</th><th>Einrichtung</th><th>Status</th><th>Nicht geputzt</th><th>Nicht sauber</th><th>Bemerkung</th><th>Erfasst von</th></tr></thead>
-      <tbody>${einzel.map((k) => `<tr class="${k.status === "mangel" ? "zeile-mangel" : ""}">
-        <td>${fmtDatum(k.datum)}</td><td>${esc(k.einrichtungName)}</td>
-        <td><span class="badge ${k.status}">${k.status === "mangel" ? "Mangel" : "In Ordnung"}</span></td>
-        <td>${k.nichtGeputzt ? "ja" : "–"}</td><td>${k.nichtSauber ? "ja" : "–"}</td>
-        <td>${esc(k.bemerkung)}</td><td>${esc(k.erfasstVonName)} ${fmtZeit(k.erfasstAm)}</td></tr>`).join("")}</tbody>
-    </table></div>` : `<p class="leer">Keine Einträge für diese Auswahl.</p>`}`;
-
-  $("#a-ergebnis").onclick = async (ev) => {
-    const btn = ev.target.closest("[data-export]");
-    if (!btn) return;
-    const a = letzteAuswertung;
-    await mitSperre(btn, async () => {
-      if (btn.dataset.export === "pdf") exporter.herunterladen(await exporter.erstellePdf(a), exporter.dateiname(a, "pdf"));
-      else if (btn.dataset.export === "xlsx") exporter.herunterladen(await exporter.erstelleExcel(a), exporter.dateiname(a, "xlsx"));
-      else {
-        const art = await exporter.perMail(a);
-        if (art === "mailto") melde("PDF und Excel wurden heruntergeladen. Bitte im Mailprogramm anhängen.");
-      }
-    });
+  inhalt.onclick = async (ev) => {
+    const navi = ev.target.closest("[data-tag]");
+    if (navi) return tabHeute(navi.dataset.tag === "0" ? heute() : tagVerschieben(datum, Number(navi.dataset.tag)));
+    const del = ev.target.closest("[data-loeschen]");
+    if (del) {
+      if (!confirm(`Eintrag von ${del.dataset.name} am ${fmtDatum(datum)} endgültig löschen?\n\nDanach kann der Hausmeister den Tag neu erfassen.`)) return;
+      await mitSperre(del, async () => {
+        await store.loescheKontrolle(del.dataset.loeschen);
+        melde("Eintrag gelöscht.");
+        tabHeute(datum);
+      });
+    }
   };
 }
 
@@ -477,6 +465,25 @@ function tabEinrichtungen() {
 }
 
 // ---------- Benutzer ----------
+function bildeBenutzername(vorname, nachname) {
+  const umschreiben = (t) => t.trim().toLowerCase()
+    .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")   // é → e usw.
+    .replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+  const v = umschreiben(vorname), n = umschreiben(nachname);
+  return v && n ? `${v[0]}.${n}` : "";
+}
+
+function erzeugePasswort() {
+  // ohne verwechselbare Zeichen (0/O, 1/l/I)
+  const buchstaben = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ", zahlen = "23456789";
+  const zufall = (menge) => menge[crypto.getRandomValues(new Uint32Array(1))[0] % menge.length];
+  let pw = "";
+  for (let i = 0; i < 7; i++) pw += zufall(buchstaben);
+  for (let i = 0; i < 3; i++) pw += zufall(zahlen);
+  return pw;
+}
+
 async function tabBenutzer() {
   const benutzer = await store.listBenutzer();
   const einrCheckboxen = (ausgewaehlt = []) => aktiveEinrichtungen().map((e) => `
@@ -487,12 +494,13 @@ async function tabBenutzer() {
     <h1>Benutzer</h1>
     ${benutzer.map((b) => `
       <details class="panel" data-uid="${esc(b.uid)}">
-        <summary><strong>${esc(b.name)}</strong> <span class="hinweis">${esc(b.benutzername || "")}, ${b.rolle === "leitung" ? "Leitung" : "Hausmeister"}${b.aktiv === false ? ", deaktiviert" : ""}</span></summary>
+        <summary><strong>${esc(b.name)}</strong> <span class="hinweis">${b.rolle === "leitung" ? "Leitung" : "Hausmeister"}${b.aktiv === false ? ", deaktiviert" : ""}${b.passwortAendern ? ", Startpasswort noch nicht geändert" : ""}</span></summary>
         <div style="margin-top:1rem">
+          <p>Benutzername: <strong>${esc(b.benutzername || "")}</strong></p>
           ${b.rolle === "hausmeister" ? `
             <p><strong>Zuständig für</strong> <span class="hinweis">(nichts angekreuzt = alle Einrichtungen)</span></p>
             ${einrCheckboxen(b.einrichtungen || [])}` : ""}
-          <label class="check"><input type="checkbox" name="aktiv" ${b.aktiv !== false ? "checked" : ""} ${b.uid === ich.uid ? "disabled" : ""}> Konto aktiv</label>
+          <div class="trenner"><label class="check"><input type="checkbox" name="aktiv" ${b.aktiv !== false ? "checked" : ""} ${b.uid === ich.uid ? "disabled" : ""}> Konto aktiv <span class="hinweis">(deaktivierte Konten können sich nicht mehr anmelden)</span></label></div>
           <button type="button" class="btn btn-primaer" data-aktion="benutzer-speichern" style="margin-top:.6rem">Änderungen speichern</button>
         </div>
       </details>`).join("")}
@@ -500,9 +508,11 @@ async function tabBenutzer() {
     <form class="panel" id="b-neu">
       <h2>Benutzer anlegen</h2>
       <div class="raster">
-        <div><label for="b-name">Name</label><input type="text" id="b-name" placeholder="Vor- und Nachname" required></div>
-        <div><label for="b-login">Benutzername</label><input type="text" id="b-login" autocapitalize="none" pattern="[A-Za-z0-9._\\-]+" placeholder="z. B. h.mueller" required></div>
-        <div><label for="b-pw">Startpasswort</label><input type="text" id="b-pw" minlength="6" required></div>
+        <div><label for="b-vorname">Vorname</label><input type="text" id="b-vorname" required></div>
+        <div><label for="b-nachname">Nachname</label><input type="text" id="b-nachname" required></div>
+        <div><label for="b-login">Benutzername <span class="hinweis">(automatisch)</span></label><input type="text" id="b-login" readonly required></div>
+        <div><label for="b-pw">Startpasswort</label>
+          <div style="display:flex;gap:.4rem"><input type="text" id="b-pw" required><button type="button" class="btn" id="b-pw-neu" title="Neues Startpasswort erzeugen">Neu</button></div></div>
         <div><label for="b-rolle">Rolle</label><select id="b-rolle"><option value="hausmeister">Hausmeister</option><option value="leitung">Leitung</option></select></div>
       </div>
       <div id="b-einr-wahl" style="margin-top:1rem">
@@ -511,7 +521,13 @@ async function tabBenutzer() {
       </div>
       <button class="btn btn-primaer" type="submit" style="margin-top:.6rem">Benutzer anlegen</button>
     </form>
-    <p class="hinweis">Passwort vergessen: Der Benutzer kann es nach der Anmeldung selbst ändern. Ein vergessenes Passwort wird in der Firebase Console unter Authentication zurückgesetzt.</p>`;
+    <p class="hinweis">Der Benutzername wird aus erstem Buchstaben des Vornamens, Punkt und Nachnamen gebildet (Umlaute werden umgeschrieben, z. B. Jürgen Müller → j.mueller). Beim ersten Anmelden muss jeder das Startpasswort durch ein eigenes ersetzen. Ein vergessenes Passwort wird in der Firebase Console unter Authentication zurückgesetzt.</p>`;
+
+  const aktualisiereLogin = () => { $("#b-login").value = bildeBenutzername($("#b-vorname").value, $("#b-nachname").value); };
+  $("#b-vorname").addEventListener("input", aktualisiereLogin);
+  $("#b-nachname").addEventListener("input", aktualisiereLogin);
+  $("#b-pw").value = erzeugePasswort();
+  $("#b-pw-neu").addEventListener("click", () => { $("#b-pw").value = erzeugePasswort(); });
 
   $("#b-rolle").addEventListener("change", (ev) => { $("#b-einr-wahl").hidden = ev.target.value !== "hausmeister"; });
 
@@ -532,14 +548,19 @@ async function tabBenutzer() {
     ev.preventDefault();
     const rolle = $("#b-rolle").value;
     await mitSperre(ev.submitter, async () => {
+      const vorname = $("#b-vorname").value.trim(), nachname = $("#b-nachname").value.trim();
+      if (!$("#b-login").value) throw new Error("Aus Vor- und Nachname lässt sich kein Benutzername bilden.");
+      const startpasswort = $("#b-pw").value;
+      if (startpasswort.length < MIN_PW) throw new Error(`Das Startpasswort braucht mindestens ${MIN_PW} Zeichen.`);
       await store.createBenutzer({
-        name: $("#b-name").value.trim(),
+        vorname, nachname,
+        name: `${vorname} ${nachname}`,
         benutzername: $("#b-login").value.trim(),
         passwort: $("#b-pw").value,
         rolle,
         einrichtungen: rolle === "hausmeister" ? [...$("#b-einr-wahl").querySelectorAll("[name=einr]:checked")].map((h) => h.value) : []
       });
-      melde("Benutzer angelegt.");
+      alert(`Benutzer angelegt.\n\nBenutzername: ${$("#b-login").value}\nStartpasswort: ${startpasswort}\n\nBitte notieren und weitergeben. Beim ersten Anmelden muss ein eigenes Passwort gesetzt werden.`);
       tabBenutzer();
     });
   });

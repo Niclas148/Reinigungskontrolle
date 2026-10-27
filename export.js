@@ -7,13 +7,13 @@ const LIBS = {
   xlsx: "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"
 };
 const geladen = {};
-function ladeSkript(url) {
+export function ladeSkript(url) {
   if (!geladen[url]) {
     geladen[url] = new Promise((ok, fehler) => {
       const s = document.createElement("script");
       s.src = url;
       s.onload = ok;
-      s.onerror = () => fehler(new Error("Export-Bibliothek konnte nicht geladen werden."));
+      s.onerror = () => { delete geladen[url]; fehler(new Error("Bibliothek konnte nicht geladen werden. Internetverbindung prüfen.")); };
       document.head.appendChild(s);
     });
   }
@@ -21,18 +21,18 @@ function ladeSkript(url) {
 }
 
 const fmtDatum = (iso) => { const [y, m, d] = iso.split("-"); return `${d}.${m}.${y}`; };
-const fmtZeit = (iso) => iso ? new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "";
-const jaNein = (b) => (b ? "ja" : "–");
 const statusText = (s) => (s === "mangel" ? "Mangel" : "In Ordnung");
+const TITEL = "Reinigungskontrolle Grundschulen und Kitas";
+const STADT = "Kreisstadt Merzig";
 
 export function dateiname(a, endung) {
   return `Reinigungskontrolle_${a.von}_bis_${a.bis}.${endung}`;
 }
 
+const summe = (a) => a.uebersicht.reduce((s, z) => ({ soll: s.soll + z.soll, k: s.k + z.kontrollen, m: s.m + z.mangel, o: s.o + z.ohneEintrag }), { soll: 0, k: 0, m: 0, o: 0 });
+
 /**
- * a = { von, bis, filterText, erstelltVon, uebersicht: [...], einzel: [...] }
- * uebersicht-Zeile: { name, typ, kontrollen, ok, mangel, ohneEintrag }
- * einzel-Zeile: Kontrolle aus der Datenbank
+ * a = { von, bis, kwSpanne, filterText, erstelltVon, uebersicht[], nachKw[], nachBereich[], einzel[], diagramme[] }
  */
 export async function erstellePdf(a) {
   await ladeSkript(LIBS.jspdf);
@@ -41,75 +41,109 @@ export async function erstellePdf(a) {
   const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const blau = [31, 58, 95];
   const rot = [179, 38, 30];
+  const breite = 297, rand = 14;
+  const s = summe(a);
 
+  // Kopf
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(16);
   pdf.setTextColor(...blau);
-  pdf.text("Reinigungskontrolle Grundschulen und Kitas", 14, 16);
+  pdf.text(TITEL, rand, 16);
+  pdf.setFontSize(11);
+  pdf.text(a.kwSpanne, breite - rand, 16, { align: "right" });
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(10);
   pdf.setTextColor(60);
-  pdf.text("Kreisstadt Merzig", 14, 22);
-  pdf.text(`Zeitraum: ${fmtDatum(a.von)} bis ${fmtDatum(a.bis)}`, 14, 29);
-  pdf.text(`Filter: ${a.filterText}`, 14, 34);
-  pdf.text(`Erstellt am ${new Date().toLocaleString("de-DE")} von ${a.erstelltVon}`, 14, 39);
-
-  const sum = a.uebersicht.reduce((s, z) => ({ k: s.k + z.kontrollen, m: s.m + z.mangel, o: s.o + z.ohneEintrag }), { k: 0, m: 0, o: 0 });
+  pdf.text(STADT, rand, 22);
+  pdf.text(`Zeitraum: ${fmtDatum(a.von)} bis ${fmtDatum(a.bis)} (${a.kwSpanne})`, rand, 29);
+  pdf.text(`Filter: ${a.filterText}`, rand, 34);
+  pdf.text(`Erstellt am ${new Date().toLocaleString("de-DE")} von ${a.erstelltVon}`, rand, 39);
   pdf.setFont("helvetica", "bold");
   pdf.setTextColor(30);
-  pdf.text(`${sum.k} Kontrollen, davon ${sum.m} mit Mangel. ${sum.o} Werktage ohne Eintrag.`, 14, 46);
+  pdf.text(`${s.k} Kontrollen, davon ${s.m} mit Mangel. ${s.o} von ${s.soll} Arbeitstagen ohne Eintrag.`, rand, 46);
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(8);
+  pdf.setTextColor(110);
+  pdf.text("Arbeitstage ohne Wochenenden und Feiertage; bei Grundschulen zusätzlich ohne saarländische Schulferien.", rand, 51);
+
+  const zahlRechts = (ab) => ({
+    didParseCell: (d) => { if (d.column.index >= ab) d.cell.styles.halign = "right"; }
+  });
+  const mangelRot = (spalte) => (d) => {
+    if (d.section === "body" && d.column.index === spalte && Number(d.cell.raw) > 0) { d.cell.styles.textColor = rot; d.cell.styles.fontStyle = "bold"; }
+  };
 
   pdf.autoTable({
-    startY: 51,
-    head: [["Einrichtung", "Art", "Kontrollen", "In Ordnung", "Mängel", "Mängelquote", "Werktage ohne Eintrag"]],
-    body: a.uebersicht.map((z) => [
-      z.name, z.typ, z.kontrollen, z.ok, z.mangel,
-      z.kontrollen ? Math.round((z.mangel / z.kontrollen) * 100) + " %" : "–",
-      z.ohneEintrag
-    ]),
+    startY: 55,
+    head: [["Einrichtung", "Art", "Arbeitstage", "Kontrollen", "In Ordnung", "Mängel", "Mängelquote", "Ohne Eintrag"]],
+    body: a.uebersicht.map((z) => [z.name, z.typ, z.soll, z.kontrollen, z.ok, z.mangel, z.kontrollen ? Math.round((z.mangel / z.kontrollen) * 100) + " %" : "–", z.ohneEintrag]),
     styles: { font: "helvetica", fontSize: 9, cellPadding: 2 },
     headStyles: { fillColor: blau },
-    columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } },
-    didParseCell: (d) => {
-      if (d.section === "head" && d.column.index >= 2) d.cell.styles.halign = "right";
-      if (d.section === "body" && d.column.index === 4 && Number(d.cell.raw) > 0) {
-        d.cell.styles.textColor = rot; d.cell.styles.fontStyle = "bold";
-      }
-    }
+    didParseCell: (d) => { zahlRechts(2).didParseCell(d); mangelRot(5)(d); }
   });
 
-  let y = pdf.lastAutoTable.finalY + 10;
-  if (y > 180) { pdf.addPage(); y = 16; }
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(12);
-  pdf.setTextColor(...blau);
-  pdf.text("Einzelkontrollen", 14, y);
-
+  let y = pdf.lastAutoTable.finalY + 9;
+  if (y > 170) { pdf.addPage(); y = 16; }
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.setTextColor(...blau);
+  pdf.text("Übersicht nach Kalenderwoche", rand, y);
   pdf.autoTable({
-    startY: y + 4,
-    head: [["Datum", "Einrichtung", "Status", "Nicht geputzt", "Nicht sauber", "Bemerkung", "Erfasst von", "Uhrzeit"]],
-    body: a.einzel.map((k) => [
-      fmtDatum(k.datum), k.einrichtungName, statusText(k.status),
-      jaNein(k.nichtGeputzt), jaNein(k.nichtSauber), k.bemerkung || "", k.erfasstVonName || "", fmtZeit(k.erfasstAm)
-    ]),
-    styles: { font: "helvetica", fontSize: 8.5, cellPadding: 1.8, overflow: "linebreak" },
+    startY: y + 3,
+    head: [["KW", "Zeitraum", "Soll", "Kontrollen", "In Ordnung", "Mängel", "Ohne Eintrag"]],
+    body: a.nachKw.map((w) => [w.kw, `${fmtDatum(w.von)} – ${fmtDatum(w.bis)}`, w.soll, w.kontrollen, w.ok, w.mangel, w.ohneEintrag]),
+    styles: { font: "helvetica", fontSize: 9, cellPadding: 2 },
     headStyles: { fillColor: blau },
-    columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 50 }, 2: { cellWidth: 22 }, 3: { cellWidth: 22 }, 4: { cellWidth: 22 }, 5: { cellWidth: "auto" }, 6: { cellWidth: 32 }, 7: { cellWidth: 16 } },
-    didParseCell: (d) => {
-      if (d.section === "body" && d.column.index === 2 && d.cell.raw === "Mangel") {
-        d.cell.styles.textColor = rot; d.cell.styles.fontStyle = "bold";
-      }
-    }
+    didParseCell: (d) => { zahlRechts(2).didParseCell(d); mangelRot(5)(d); }
   });
 
+  // Diagramme: eigene Seite, zwei nebeneinander
+  if (a.diagramme?.length) {
+    pdf.addPage();
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(14); pdf.setTextColor(...blau);
+    pdf.text("Diagramme", rand, 16);
+    const anzahl = Math.min(2, a.diagramme.length);
+    const spalte = (breite - 2 * rand - 8 * (anzahl - 1)) / anzahl;
+    let x = rand, yy = 26, zeilenHoehe = 0, nr = 0;
+    for (const d of a.diagramme) {
+      const h = Math.min(72, spalte * (d.hoehe / d.breite));
+      if (yy + h + 8 > 198) { pdf.addPage(); yy = 16; x = rand; nr = 0; }
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(10); pdf.setTextColor(40);
+      pdf.text(d.titel, x, yy);
+      pdf.addImage(d.bild, "PNG", x, yy + 3, spalte, h);
+      zeilenHoehe = Math.max(zeilenHoehe, h + 10);
+      nr++;
+      if (nr % anzahl) x += spalte + 8;
+      else { x = rand; yy += zeilenHoehe + 4; zeilenHoehe = 0; }
+    }
+  }
+
+  // Einzelkontrollen
+  pdf.addPage();
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.setTextColor(...blau);
+  pdf.text("Einzelkontrollen", rand, 16);
+  pdf.autoTable({
+    startY: 20,
+    head: [["KW", "Datum", "Einrichtung", "Status", "Art", "Bereiche", "Bemerkung / Nachträge", "Erfasst von"]],
+    body: a.einzel.map((k) => [
+      k.kw.replace("KW ", ""), fmtDatum(k.datum), k.einrichtungName, statusText(k.status), k.art, k.bereiche,
+      [k.bemerkung, k.nachtraege && "Nachtrag: " + k.nachtraege].filter(Boolean).join("\n"),
+      `${k.erfasstVon} ${k.uhrzeit}`
+    ]),
+    styles: { font: "helvetica", fontSize: 8, cellPadding: 1.6, overflow: "linebreak" },
+    headStyles: { fillColor: blau },
+    columnStyles: { 0: { cellWidth: 16 }, 1: { cellWidth: 20 }, 2: { cellWidth: 44 }, 3: { cellWidth: 20 }, 4: { cellWidth: 28 }, 5: { cellWidth: 40 }, 6: { cellWidth: "auto" }, 7: { cellWidth: 30 } },
+    didParseCell: (d) => {
+      if (d.section === "body" && d.column.index === 3 && d.cell.raw === "Mangel") { d.cell.styles.textColor = rot; d.cell.styles.fontStyle = "bold"; }
+    }
+  });
+  if (!a.einzel.length) { pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.text("Keine Einträge für diese Auswahl.", rand, pdf.lastAutoTable.finalY + 8); }
+
+  // Fußzeile
   const seiten = pdf.getNumberOfPages();
   for (let i = 1; i <= seiten; i++) {
     pdf.setPage(i);
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(8);
-    pdf.setTextColor(120);
-    pdf.text(`Seite ${i} von ${seiten}`, 283, 203, { align: "right" });
-    pdf.text("Kreisstadt Merzig – Reinigungskontrolle", 14, 203);
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(8); pdf.setTextColor(120);
+    pdf.text(`${STADT} – Reinigungskontrolle – ${a.kwSpanne}`, rand, 203);
+    pdf.text(`Seite ${i} von ${seiten}`, breite - rand, 203, { align: "right" });
   }
   return pdf.output("blob");
 }
@@ -118,38 +152,45 @@ export async function erstelleExcel(a) {
   await ladeSkript(LIBS.xlsx);
   const XLSX = window.XLSX;
   const wb = XLSX.utils.book_new();
-
   const kopf = [
-    ["Reinigungskontrolle Grundschulen und Kitas – Kreisstadt Merzig"],
-    [`Zeitraum: ${fmtDatum(a.von)} bis ${fmtDatum(a.bis)}`],
+    [`${TITEL} – ${STADT}`],
+    [`Zeitraum: ${fmtDatum(a.von)} bis ${fmtDatum(a.bis)} (${a.kwSpanne})`],
     [`Filter: ${a.filterText}`],
     [`Erstellt am ${new Date().toLocaleString("de-DE")} von ${a.erstelltVon}`],
     []
   ];
-  const ueb = XLSX.utils.aoa_to_sheet([
-    ...kopf,
-    ["Einrichtung", "Art", "Kontrollen", "In Ordnung", "Mängel", "Mängelquote", "Werktage ohne Eintrag"],
-    ...a.uebersicht.map((z) => [z.name, z.typ, z.kontrollen, z.ok, z.mangel, z.kontrollen ? z.mangel / z.kontrollen : null, z.ohneEintrag])
-  ]);
-  ueb["!cols"] = [{ wch: 40 }, { wch: 14 }, { wch: 11 }, { wch: 11 }, { wch: 9 }, { wch: 12 }, { wch: 22 }];
-  const start = kopf.length + 1; // 0-basierte Zeile der ersten Datenzeile (nach Kopfblock + Spaltenüberschrift)
+  const blatt = (zeilen, breiten, mitKopf = true) => {
+    const ws = XLSX.utils.aoa_to_sheet(mitKopf ? [...kopf, ...zeilen] : zeilen);
+    ws["!cols"] = breiten.map((wch) => ({ wch }));
+    const start = mitKopf ? kopf.length : 0;
+    ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: start, c: 0 }, e: { r: start + zeilen.length - 1, c: breiten.length - 1 } }) };
+    return ws;
+  };
+
+  const ueb = blatt([
+    ["Einrichtung", "Art", "Arbeitstage", "Kontrollen", "In Ordnung", "Mängel", "Mängelquote", "Ohne Eintrag"],
+    ...a.uebersicht.map((z) => [z.name, z.typ, z.soll, z.kontrollen, z.ok, z.mangel, z.kontrollen ? z.mangel / z.kontrollen : null, z.ohneEintrag])
+  ], [40, 14, 12, 11, 11, 9, 12, 13]);
   for (let r = 0; r < a.uebersicht.length; r++) {
-    const zelle = ueb[XLSX.utils.encode_cell({ r: start + r, c: 5 })];
+    const zelle = ueb[XLSX.utils.encode_cell({ r: kopf.length + 1 + r, c: 6 })];
     if (zelle && typeof zelle.v === "number") zelle.z = "0%";
   }
-  ueb["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: kopf.length, c: 0 }, e: { r: kopf.length + a.uebersicht.length, c: 6 } }) };
   XLSX.utils.book_append_sheet(wb, ueb, "Übersicht");
 
-  const einzel = XLSX.utils.aoa_to_sheet([
-    ["Datum", "Einrichtung", "Art", "Status", "Nicht geputzt", "Nicht sauber", "Bemerkung", "Erfasst von", "Uhrzeit"],
-    ...a.einzel.map((k) => [
-      fmtDatum(k.datum), k.einrichtungName, k.einrichtungTyp, statusText(k.status),
-      k.nichtGeputzt ? "ja" : "nein", k.nichtSauber ? "ja" : "nein", k.bemerkung || "", k.erfasstVonName || "", fmtZeit(k.erfasstAm)
-    ])
-  ]);
-  einzel["!cols"] = [{ wch: 11 }, { wch: 40 }, { wch: 14 }, { wch: 11 }, { wch: 13 }, { wch: 12 }, { wch: 50 }, { wch: 22 }, { wch: 8 }];
-  einzel["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: a.einzel.length, c: 8 } }) };
-  XLSX.utils.book_append_sheet(wb, einzel, "Einzelkontrollen");
+  XLSX.utils.book_append_sheet(wb, blatt([
+    ["KW", "Von", "Bis", "Soll", "Kontrollen", "In Ordnung", "Mängel", "Ohne Eintrag"],
+    ...a.nachKw.map((w) => [w.kw, fmtDatum(w.von), fmtDatum(w.bis), w.soll, w.kontrollen, w.ok, w.mangel, w.ohneEintrag])
+  ], [12, 11, 11, 8, 11, 11, 9, 13]), "Nach KW");
+
+  XLSX.utils.book_append_sheet(wb, blatt([
+    ["KW", "Datum", "Einrichtung", "Art der Einrichtung", "Status", "Mangel", "Bereiche", "Bemerkung", "Nachträge", "Erfasst von", "Uhrzeit"],
+    ...a.einzel.map((k) => [k.kw, fmtDatum(k.datum), k.einrichtungName, k.einrichtungTyp, statusText(k.status), k.art, k.bereiche, k.bemerkung, k.nachtraege, k.erfasstVon, k.uhrzeit])
+  ], [12, 11, 36, 16, 11, 26, 40, 40, 50, 22, 8], false), "Einzelkontrollen");
+
+  XLSX.utils.book_append_sheet(wb, blatt([
+    ["Bereich", "Anzahl Mängel"],
+    ...a.nachBereich.map((b) => [b.bereich, b.anzahl])
+  ], [30, 15]), "Mängel nach Bereich");
 
   const daten = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   return new Blob([daten], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -169,8 +210,7 @@ export function herunterladen(blob, name) {
 /**
  * Versand per Mail. Wo der Browser Dateien teilen kann (Handy, Edge/Chrome
  * unter Windows), öffnet sich der Teilen-Dialog mit PDF + Excel im Anhang.
- * Sonst werden beide Dateien heruntergeladen und das Mailprogramm geöffnet –
- * die Dateien müssen dann selbst angehängt werden.
+ * Sonst werden beide Dateien heruntergeladen und das Mailprogramm geöffnet.
  * Rückgabe: "geteilt" | "mailto" | "abgebrochen"
  */
 export async function perMail(a) {
@@ -179,8 +219,8 @@ export async function perMail(a) {
     new File([pdfBlob], dateiname(a, "pdf"), { type: "application/pdf" }),
     new File([xlsxBlob], dateiname(a, "xlsx"), { type: xlsxBlob.type })
   ];
-  const betreff = `Reinigungskontrolle ${fmtDatum(a.von)} bis ${fmtDatum(a.bis)}`;
-  const text = `Hallo,\n\nanbei die Auswertung der Reinigungskontrolle für den Zeitraum ${fmtDatum(a.von)} bis ${fmtDatum(a.bis)} (${a.filterText}).\n\nViele Grüße\n${a.erstelltVon}`;
+  const betreff = `Reinigungskontrolle ${a.kwSpanne} (${fmtDatum(a.von)} bis ${fmtDatum(a.bis)})`;
+  const text = `Hallo,\n\nanbei die Auswertung der Reinigungskontrolle für ${a.kwSpanne} (${fmtDatum(a.von)} bis ${fmtDatum(a.bis)}, ${a.filterText}).\n\nViele Grüße\n${a.erstelltVon}`;
 
   if (navigator.canShare && navigator.canShare({ files: dateien })) {
     try {
@@ -192,7 +232,6 @@ export async function perMail(a) {
   }
   herunterladen(pdfBlob, dateien[0].name);
   herunterladen(xlsxBlob, dateien[1].name);
-  const body = text.replace("anbei", "im Anhang");
-  window.location.href = `mailto:?subject=${encodeURIComponent(betreff)}&body=${encodeURIComponent(body)}`;
+  window.location.href = `mailto:?subject=${encodeURIComponent(betreff)}&body=${encodeURIComponent(text.replace("anbei", "im Anhang"))}`;
   return "mailto";
 }

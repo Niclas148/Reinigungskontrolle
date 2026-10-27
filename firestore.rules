@@ -17,6 +17,10 @@ service cloud.firestore {
     match /benutzer/{uid} {
       allow read: if angemeldet() && (request.auth.uid == uid || leitung());
       allow write: if leitung();
+      // Nach dem ersten Login darf jeder nur seinen eigenen Merker "passwortAendern" auf false setzen
+      allow update: if angemeldet() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['passwortAendern'])
+        && request.resource.data.passwortAendern == false;
     }
 
     match /einrichtungen/{id} {
@@ -26,14 +30,32 @@ service cloud.firestore {
 
     match /kontrollen/{id} {
       allow read: if aktiv();
-      allow create, update: if leitung() || (
+
+      // Erstmeldung: einmal pro Einrichtung und Tag, danach gesperrt
+      allow create: if leitung() || (
         aktiv()
         && request.resource.data.erfasstVon == request.auth.uid
         && request.resource.data.status in ['ok', 'mangel']
         && id == request.resource.data.datum + '_' + request.resource.data.einrichtungId
         && darfEinrichtung(request.resource.data.einrichtungId)
         && request.resource.data.bemerkung.size() <= 500
+        && request.resource.data.get('nachtraege', []).size() == 0
       );
+
+      // Hausmeister dürfen nur einen Nachtrag anhängen (nichts ändern oder entfernen).
+      // Ein nachgemeldeter Mangel darf den Status auf "mangel" setzen, nie zurück.
+      allow update: if leitung() || (
+        aktiv()
+        && darfEinrichtung(resource.data.einrichtungId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nachtraege', 'status'])
+        && (request.resource.data.status == resource.data.status || request.resource.data.status == 'mangel')
+        && request.resource.data.nachtraege.size() == resource.data.get('nachtraege', []).size() + 1
+        && request.resource.data.nachtraege.hasAll(resource.data.get('nachtraege', []))
+        && request.resource.data.nachtraege[request.resource.data.nachtraege.size() - 1].von == request.auth.uid
+        && request.resource.data.nachtraege[request.resource.data.nachtraege.size() - 1].get('text', '').size() <= 500
+      );
+
+      // Löschen nur durch die Leitung (Notfall)
       allow delete: if leitung();
     }
   }

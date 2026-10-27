@@ -4,14 +4,28 @@ Hausmeister prüfen morgens, ob ihre Einrichtungen geputzt und sauber sind, und 
 
 ## Aufbau
 
+Alle Dateien liegen im Hauptverzeichnis des Repos.
+
 | Datei | Zweck |
 |---|---|
-| `index.html`, `css/style.css` | Oberfläche |
-| `js/app.js` | Ansichten für Hausmeister und Leitung |
-| `js/export.js` | PDF- und Excel-Export, Mailversand |
-| `js/datastore.js` | **Einzige Datei mit Firebase-Bezug** (wichtig für den Umzug) |
-| `js/firebase-config.js` | Zugangsdaten des Firebase-Projekts |
+| `index.html`, `style.css` | Oberfläche |
+| `app.js` | Anmeldung, Hausmeister-Ansicht, Tagesübersicht, Einrichtungen, Benutzer |
+| `auswertung.js` | Auswertung und Diagramme (nur Leitung) |
+| `export.js` | PDF- und Excel-Export, Mailversand |
+| `kalender.js` | Kalenderwochen, Feiertage, **Schulferien Saarland (jährlich pflegen!)** |
+| `hilfen.js` | Gemeinsame Funktionen, Liste der Mangel-Bereiche |
+| `datastore.js` | **Einzige Datei mit Firebase-Bezug** (wichtig für den Umzug) |
+| `firebase-config.js` | Zugangsdaten des Firebase-Projekts |
 | `firestore.rules` | Zugriffsregeln der Datenbank |
+| `manifest.webmanifest`, `sw.js`, `icon-*.png` | Installation als App auf dem Handy |
+| `logo.png` (optional) | Stadtlogo im Kopf; fehlt die Datei, wird nichts angezeigt |
+
+## Pflege
+
+- **Schulferien:** In `kalender.js` die Liste `FERIEN_SAARLAND` jedes Jahr mit dem Bildungsserver Saarland abgleichen und ergänzen. Feiertage werden automatisch berechnet.
+- **Mangel-Bereiche:** In `hilfen.js` unter `BEREICHE` anpassbar, getrennt für Grundschulen und Kitas.
+- **Logo:** Datei `logo.png` (ca. 120 px hoch) ins Repo legen.
+- **Nach jedem Update:** In `sw.js` die Versionsnummer bei `CACHE` hochzählen, damit installierte Apps die neue Version laden.
 
 ## Einrichtung (einmalig)
 
@@ -48,15 +62,17 @@ Als `admin` anmelden → **Einrichtungen** → „Mehrere auf einmal hinzufügen
 
 ## Bedienung
 
-**Hausmeister:** Anmelden → für jede Einrichtung „Alles sauber“ oder „Mangel melden“ (ankreuzen: nicht geputzt / nicht sauber, Bemerkung freiwillig). Ein Eintrag pro Einrichtung und Tag; erneutes Speichern überschreibt ihn.
+**Hausmeister:** Anmelden → für jede Einrichtung „Alles sauber“ oder „Mangel melden“ (Art und Bereich ankreuzen, Bemerkung freiwillig). Ein Eintrag pro Einrichtung und Tag. Nach dem Speichern ist der Eintrag gesperrt; Ergänzungen und nachträglich entdeckte Mängel gehen nur als Nachtrag. Löschen kann nur die Leitung.
+
+**Als App installieren:** Android/Chrome: Menü → „App installieren“ bzw. Button „Als App installieren“ oben. iPhone/Safari: Teilen → „Zum Home-Bildschirm“.
 
 **Leitung:**
-- *Tagesübersicht*: Stand eines Tages, offene Einrichtungen grau.
-- *Auswertung*: Zeitraum und Filter wählen → PDF, Excel oder „Per Mail senden“. Am Handy und in Edge/Chrome unter Windows öffnet sich der Teilen-Dialog mit beiden Dateien im Anhang; sonst werden die Dateien heruntergeladen und das Mailprogramm geöffnet.
+- *Tagesübersicht*: Stand eines Tages mit Blättern vor/zurück; Einträge können im Notfall gelöscht werden.
+- *Auswertung*: Zeitraum, Kalenderwoche oder Schnellauswahl → Kennzahlen, Diagramme, Übersicht je Einrichtung und je KW → PDF, Excel oder „Per Mail senden“. Am Handy und in Edge/Chrome unter Windows öffnet sich der Teilen-Dialog mit beiden Dateien im Anhang; sonst werden die Dateien heruntergeladen und das Mailprogramm geöffnet.
 - *Einrichtungen*, *Benutzer*: Pflege. Einrichtungen und Konten werden deaktiviert statt gelöscht, damit die Historie erhalten bleibt.
 - *Datensicherung*: kompletter Export als JSON.
 
-„Werktage ohne Eintrag“ zählt Montag bis Freitag; Feiertage und Ferien werden nicht abgezogen.
+„Ohne Eintrag“ zählt nur Arbeitstage: ohne Wochenenden und saarländische Feiertage, bei Grundschulen zusätzlich ohne Schulferien. Einträge an Wochenenden erscheinen trotzdem in der Auswertung.
 
 ## Späterer Umzug (z. B. auf einen eigenen Server im Stadtnetz)
 
