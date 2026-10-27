@@ -21,6 +21,8 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 *, *::before, *::after { box-sizing: inherit; }
+/* hidden muss immer gewinnen, auch gegen display:flex */
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   font-family: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
@@ -123,7 +125,7 @@ textarea { min-height: 80px; resize: vertical; }
 }
 
 /* Login */
-.login { max-width: 380px; margin: 8vh auto 0; }
+.login { width: min(100%, 26rem); margin: 10vh auto 0; }
 .login h1 { margin-bottom: .2rem; }
 .login .untertitel { color: var(--text-leise); margin-bottom: 1.6rem; }
 .fehler { color: var(--mangel); font-weight: 700; }
