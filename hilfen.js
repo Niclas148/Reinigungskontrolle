@@ -51,11 +51,11 @@ export function zusammenfassen(k) {
 
 export const artText = (z) => [z.nichtGeputzt && "nicht geputzt", z.nichtSauber && "nicht sauber"].filter(Boolean).join(", ");
 
-export function nachtragText(n) {
+export function nachtragText(n, mitName = true) {
   const teile = [];
   if (n.mangel) teile.push(`Mangel nachgemeldet: ${[n.nichtGeputzt && "nicht geputzt", n.nichtSauber && "nicht sauber"].filter(Boolean).join(", ")}${n.bereiche?.length ? " (" + n.bereiche.join(", ") + ")" : ""}`);
   if (n.text) teile.push(n.text);
-  return `${fmtZeit(n.zeit)} Uhr, ${n.vonName}: ${teile.join(" – ")}`;
+  return `${fmtZeit(n.zeit)} Uhr${mitName ? ", " + n.vonName : ""}: ${teile.join(" – ")}`;
 }
 
 /** Status, Bereiche, Bemerkung und Nachträge einer Kontrolle als HTML. */

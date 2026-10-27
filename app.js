@@ -487,25 +487,43 @@ function erzeugePasswort() {
 }
 
 async function tabBenutzer() {
-  const benutzer = await store.listBenutzer();
+  const alle = await store.listBenutzer();
+  const benutzer = alle.filter((b) => !b.geloescht);
   const einrCheckboxen = (ausgewaehlt = []) => aktiveEinrichtungen().map((e) => `
     <label class="check"><input type="checkbox" name="einr" value="${esc(e.id)}" ${ausgewaehlt.includes(e.id) ? "checked" : ""}> ${esc(e.name)}</label>`).join("")
     || `<p class="hinweis">Erst Einrichtungen anlegen.</p>`;
 
   inhalt.innerHTML = `
     <h1>Benutzer</h1>
-    ${benutzer.map((b) => `
+    ${benutzer.map((b) => {
+      const ichSelbst = b.uid === ich.uid;
+      const vorname = b.vorname || b.name.split(" ")[0] || "";
+      const nachname = b.nachname || b.name.split(" ").slice(1).join(" ");
+      return `
       <details class="panel" data-uid="${esc(b.uid)}">
-        <summary><strong>${esc(b.name)}</strong> <span class="hinweis">${b.rolle === "leitung" ? "Leitung" : "Hausmeister"}${b.aktiv === false ? ", deaktiviert" : ""}${b.passwortAendern ? ", Startpasswort noch nicht geändert" : ""}</span></summary>
+        <summary><strong>${esc(b.name)}</strong> <span class="hinweis">${b.rolle === "leitung" ? "Leitung" : "Hausmeister"}${b.aktiv === false ? ", deaktiviert" : ""}${b.passwortAendern ? ", Startpasswort noch nicht geändert" : ""}${ichSelbst ? ", das bist du" : ""}</span></summary>
         <div style="margin-top:1rem">
-          <p>Benutzername: <strong>${esc(b.benutzername || "")}</strong></p>
-          ${b.rolle === "hausmeister" ? `
+          <p>Benutzername: <strong>${esc(b.benutzername || "")}</strong> <span class="hinweis">(nicht änderbar)</span></p>
+          <div class="raster">
+            <div><label>Vorname</label><input type="text" name="vorname" value="${esc(vorname)}"></div>
+            <div><label>Nachname</label><input type="text" name="nachname" value="${esc(nachname)}"></div>
+            <div><label>E-Mail <span class="hinweis">(freiwillig)</span></label><input type="email" name="email" value="${esc(b.email || "")}" placeholder="name@merzig.de"></div>
+            <div><label>Rolle</label><select name="rolle" ${ichSelbst ? "disabled" : ""}>
+              <option value="hausmeister" ${b.rolle === "hausmeister" ? "selected" : ""}>Hausmeister</option>
+              <option value="leitung" ${b.rolle === "leitung" ? "selected" : ""}>Leitung</option></select></div>
+          </div>
+          <div data-einr-wahl ${b.rolle === "hausmeister" ? "" : "hidden"} style="margin-top:1rem">
             <p><strong>Zuständig für</strong> <span class="hinweis">(nichts angekreuzt = alle Einrichtungen)</span></p>
-            ${einrCheckboxen(b.einrichtungen || [])}` : ""}
-          <div class="trenner"><label class="check"><input type="checkbox" name="aktiv" ${b.aktiv !== false ? "checked" : ""} ${b.uid === ich.uid ? "disabled" : ""}> Konto aktiv <span class="hinweis">(deaktivierte Konten können sich nicht mehr anmelden)</span></label></div>
-          <button type="button" class="btn btn-primaer" data-aktion="benutzer-speichern" style="margin-top:.6rem">Änderungen speichern</button>
+            <div class="einr-spalten">${einrCheckboxen(b.einrichtungen || [])}</div>
+          </div>
+          <div class="trenner"><label class="check"><input type="checkbox" name="aktiv" ${b.aktiv !== false ? "checked" : ""} ${ichSelbst ? "disabled" : ""}> Konto aktiv <span class="hinweis">(deaktivierte Konten können sich nicht mehr anmelden)</span></label></div>
+          <div class="aktionen" style="margin-top:.6rem">
+            <button type="button" class="btn btn-primaer" data-aktion="benutzer-speichern">Änderungen speichern</button>
+            ${ichSelbst ? "" : `<button type="button" class="btn btn-mangel" data-aktion="benutzer-loeschen">Benutzer löschen</button>`}
+          </div>
         </div>
-      </details>`).join("")}
+      </details>`;
+    }).join("")}
 
     <form class="panel" id="b-neu">
       <h2>Benutzer anlegen</h2>
@@ -513,36 +531,63 @@ async function tabBenutzer() {
         <div><label for="b-vorname">Vorname</label><input type="text" id="b-vorname" required></div>
         <div><label for="b-nachname">Nachname</label><input type="text" id="b-nachname" required></div>
         <div><label for="b-login">Benutzername <span class="hinweis">(automatisch)</span></label><input type="text" id="b-login" readonly required></div>
+        <div><label for="b-email">E-Mail <span class="hinweis">(freiwillig)</span></label><input type="email" id="b-email" placeholder="name@merzig.de"></div>
         <div><label for="b-pw">Startpasswort</label>
           <div style="display:flex;gap:.4rem"><input type="text" id="b-pw" required><button type="button" class="btn" id="b-pw-neu" title="Neues Startpasswort erzeugen">Neu</button></div></div>
         <div><label for="b-rolle">Rolle</label><select id="b-rolle"><option value="hausmeister">Hausmeister</option><option value="leitung">Leitung</option></select></div>
       </div>
       <div id="b-einr-wahl" style="margin-top:1rem">
         <p><strong>Zuständig für</strong> <span class="hinweis">(nichts angekreuzt = alle Einrichtungen)</span></p>
-        ${einrCheckboxen()}
+        <div class="einr-spalten">${einrCheckboxen()}</div>
       </div>
       <button class="btn btn-primaer" type="submit" style="margin-top:.6rem">Benutzer anlegen</button>
     </form>
-    <p class="hinweis">Der Benutzername wird aus erstem Buchstaben des Vornamens, Punkt und Nachnamen gebildet (Umlaute werden umgeschrieben, z. B. Jürgen Müller → j.mueller). Beim ersten Anmelden muss jeder das Startpasswort durch ein eigenes ersetzen. Ein vergessenes Passwort wird in der Firebase Console unter Authentication zurückgesetzt.</p>`;
+    <p class="hinweis">Der Benutzername wird aus erstem Buchstaben des Vornamens, Punkt und Nachnamen gebildet (z. B. Jürgen Müller → j.mueller). Beim ersten Anmelden muss jeder das Startpasswort durch ein eigenes ersetzen.
+    Gelöschte Benutzer können sich nicht mehr anmelden; ihre bisherigen Einträge bleiben in der Auswertung erhalten.
+    <strong>Passwort zurücksetzen</strong> geht in der aktuellen Version nur über die Firebase Console (Authentication → Nutzer).</p>`;
 
   const aktualisiereLogin = () => { $("#b-login").value = bildeBenutzername($("#b-vorname").value, $("#b-nachname").value); };
   $("#b-vorname").addEventListener("input", aktualisiereLogin);
   $("#b-nachname").addEventListener("input", aktualisiereLogin);
   $("#b-pw").value = erzeugePasswort();
   $("#b-pw-neu").addEventListener("click", () => { $("#b-pw").value = erzeugePasswort(); });
-
   $("#b-rolle").addEventListener("change", (ev) => { $("#b-einr-wahl").hidden = ev.target.value !== "hausmeister"; });
 
+  inhalt.onchange = (ev) => {
+    if (ev.target.name === "rolle") $("[data-einr-wahl]", ev.target.closest("details")).hidden = ev.target.value !== "hausmeister";
+  };
+
   inhalt.onclick = async (ev) => {
-    const btn = ev.target.closest("[data-aktion=benutzer-speichern]");
+    const btn = ev.target.closest("[data-aktion]");
     if (!btn) return;
     const box = btn.closest("details");
-    const daten = { aktiv: $("[name=aktiv]", box).checked };
-    const haken = [...box.querySelectorAll("[name=einr]")];
-    if (haken.length) daten.einrichtungen = haken.filter((h) => h.checked).map((h) => h.value);
+    const b = benutzer.find((x) => x.uid === box.dataset.uid);
+
+    if (btn.dataset.aktion === "benutzer-loeschen") {
+      if (!confirm(`${b.name} (${b.benutzername}) wirklich löschen?\n\nDer Benutzer kann sich danach nicht mehr anmelden. Seine bisherigen Einträge bleiben erhalten.`)) return;
+      await mitSperre(btn, async () => {
+        await store.loescheBenutzer(b.uid);
+        melde(`${b.name} gelöscht.`);
+        tabBenutzer();
+      });
+      return;
+    }
+
     await mitSperre(btn, async () => {
-      await store.updateBenutzer(box.dataset.uid, daten);
+      const vorname = $("[name=vorname]", box).value.trim(), nachname = $("[name=nachname]", box).value.trim();
+      if (!vorname || !nachname) throw new Error("Vor- und Nachname dürfen nicht leer sein.");
+      const email = $("[name=email]", box).value.trim();
+      if (email && !$("[name=email]", box).checkValidity()) throw new Error("Die E-Mail-Adresse ist ungültig.");
+      const rolle = $("[name=rolle]", box).value;
+      const daten = { vorname, nachname, name: `${vorname} ${nachname}`, email };
+      if (b.uid !== ich.uid) {
+        daten.rolle = rolle;
+        daten.aktiv = $("[name=aktiv]", box).checked;
+      }
+      daten.einrichtungen = rolle === "hausmeister" ? [...box.querySelectorAll("[data-einr-wahl] [name=einr]:checked")].map((h) => h.value) : [];
+      await store.updateBenutzer(b.uid, daten);
       melde("Benutzer gespeichert.");
+      tabBenutzer();
     });
   };
 
@@ -554,11 +599,13 @@ async function tabBenutzer() {
       if (!$("#b-login").value) throw new Error("Aus Vor- und Nachname lässt sich kein Benutzername bilden.");
       const startpasswort = $("#b-pw").value;
       if (startpasswort.length < MIN_PW) throw new Error(`Das Startpasswort braucht mindestens ${MIN_PW} Zeichen.`);
+      if ($("#b-email").value && !$("#b-email").checkValidity()) throw new Error("Die E-Mail-Adresse ist ungültig.");
       await store.createBenutzer({
         vorname, nachname,
         name: `${vorname} ${nachname}`,
         benutzername: $("#b-login").value.trim(),
-        passwort: $("#b-pw").value,
+        email: $("#b-email").value.trim(),
+        passwort: startpasswort,
         rolle,
         einrichtungen: rolle === "hausmeister" ? [...$("#b-einr-wahl").querySelectorAll("[name=einr]:checked")].map((h) => h.value) : []
       });

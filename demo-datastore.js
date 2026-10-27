@@ -177,11 +177,12 @@ export async function loescheKontrolle(id) { z.kontrollen = z.kontrollen.filter(
 
 // ---------- Benutzer ----------
 export async function listBenutzer() { return kopie(z.benutzer).sort((a, b) => a.name.localeCompare(b.name, "de")); }
-export async function createBenutzer({ benutzername, name, vorname, nachname, rolle, einrichtungen }) {
+export async function createBenutzer({ benutzername, name, vorname, nachname, email, rolle, einrichtungen }) {
   if (z.benutzer.some((b) => b.benutzername === benutzername)) throw new Error("Diesen Benutzernamen gibt es schon.");
-  z.benutzer.push({ uid: "demo-" + Date.now(), name, vorname, nachname, benutzername, rolle, einrichtungen: einrichtungen || [], aktiv: true, passwortAendern: true, passwortNeu: arguments[0].passwort });
+  z.benutzer.push({ uid: "demo-" + Date.now(), name, vorname, nachname, email: email || "", benutzername, rolle, einrichtungen: einrichtungen || [], aktiv: true, passwortAendern: true, passwortNeu: arguments[0].passwort });
   sichern();
 }
+export async function loescheBenutzer(uid) { Object.assign(z.benutzer.find((b) => b.uid === uid), { aktiv: false, geloescht: true }); sichern(); }
 export async function updateBenutzer(uid, daten) { Object.assign(z.benutzer.find((b) => b.uid === uid), daten); sichern(); }
 
 // ---------- Datensicherung ----------

@@ -41,8 +41,9 @@ async function ladeLogo() {
   return logoCache;
 }
 
-export function dateiname(a, endung) {
-  return `Reinigungskontrolle_${a.von}_bis_${a.bis}.${endung}`;
+export function dateiname(a, endung, praefix = "Reinigungskontrolle") {
+  const einr = a.einrichtungsNamen?.length === 1 ? "_" + a.einrichtungsNamen[0].replace(/[^A-Za-zÄÖÜäöüß0-9]+/g, "-") : "";
+  return `${praefix}${einr}_${a.von}_bis_${a.bis}.${endung}`;
 }
 
 const summe = (a) => a.uebersicht.reduce((s, z) => ({ soll: s.soll + z.soll, k: s.k + z.kontrollen, m: s.m + z.mangel, o: s.o + z.ohneEintrag }), { soll: 0, k: 0, m: 0, o: 0 });
@@ -256,5 +257,121 @@ export async function perMail(a) {
   herunterladen(pdfBlob, dateien[0].name);
   herunterladen(xlsxBlob, dateien[1].name);
   window.location.href = `mailto:?subject=${encodeURIComponent(betreff)}&body=${encodeURIComponent(text.replace("anbei", "im Anhang"))}`;
+  return "mailto";
+}
+
+// ============================================================
+// Mängelbericht für externe Dienstleister (z. B. Reinigungsfirma)
+// Nur Mängel, keine internen Kennzahlen, keine Mitarbeiternamen.
+// ============================================================
+const wochentagKurz = (iso) => new Date(iso + "T12:00").toLocaleDateString("de-DE", { weekday: "short" });
+
+export async function erstelleMaengelbericht(a) {
+  await ladeSkript(LIBS.jspdf);
+  await ladeSkript(LIBS.autotable);
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const blau = [31, 58, 95], rot = [179, 38, 30];
+  const breite = 210, rand = 16;
+  const logo = await ladeLogo();
+  if (logo) { const h = 18, w = h * logo.verhaeltnis; pdf.addImage(logo.daten, "PNG", breite - rand - w, 10, w, h); }
+
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(18); pdf.setTextColor(...blau);
+  pdf.text("Mängelbericht Reinigung", rand, 20);
+  pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(70);
+  pdf.text(`${STADT} – Grundschulen und Kindertagesstätten`, rand, 26);
+
+  const einrText = a.einrichtungsNamen.length <= 4 ? a.einrichtungsNamen.join(", ") : `${a.einrichtungsNamen.length} Einrichtungen (siehe Tabelle)`;
+  pdf.autoTable({
+    startY: 33,
+    theme: "plain",
+    body: [
+      ["Zeitraum", `${fmtDatum(a.von)} bis ${fmtDatum(a.bis)} (${a.kwSpanne})`],
+      ["Einrichtung(en)", einrText],
+      ["Erstellt am", new Date().toLocaleString("de-DE")],
+      ["Ansprechpartner", `${a.erstelltVon}, ${STADT}`]
+    ],
+    styles: { font: "helvetica", fontSize: 10, cellPadding: 1.2 },
+    columnStyles: { 0: { fontStyle: "bold", cellWidth: 38 } },
+    margin: { left: rand, right: rand }
+  });
+
+  let y = pdf.lastAutoTable.finalY + 8;
+  const tage = new Set(a.maengel.map((m) => m.datum)).size;
+  pdf.setFont("helvetica", "bold"); pdf.setFontSize(11); pdf.setTextColor(30);
+  pdf.text(a.maengel.length
+    ? `Im Zeitraum wurden ${a.maengel.length} Mängel an ${tage} Tagen festgestellt.`
+    : "Im Zeitraum wurden keine Mängel festgestellt.", rand, y);
+
+  if (a.maengel.length) {
+    // Zusammenfassung je Einrichtung
+    const jeEinr = {};
+    for (const m of a.maengel) {
+      const e = (jeEinr[m.einrichtungName] ||= { anzahl: 0, bereiche: {} });
+      e.anzahl++;
+      for (const b of m.bereiche.split(", ").filter(Boolean)) e.bereiche[b] = (e.bereiche[b] || 0) + 1;
+    }
+    pdf.autoTable({
+      startY: y + 4,
+      head: [["Einrichtung", "Mängel", "Häufigste Bereiche"]],
+      body: Object.entries(jeEinr).sort((x, z) => z[1].anzahl - x[1].anzahl).map(([name, e]) => [
+        name, e.anzahl, Object.entries(e.bereiche).sort((x, z) => z[1] - x[1]).slice(0, 3).map(([b, n]) => `${b} (${n})`).join(", ")
+      ]),
+      styles: { font: "helvetica", fontSize: 9, cellPadding: 2 },
+      headStyles: { fillColor: blau },
+      columnStyles: { 1: { halign: "right", cellWidth: 18 } },
+      margin: { left: rand, right: rand }
+    });
+
+    y = pdf.lastAutoTable.finalY + 10;
+    if (y > 250) { pdf.addPage(); y = 20; }
+    pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.setTextColor(...blau);
+    pdf.text("Festgestellte Mängel im Einzelnen", rand, y);
+
+    const mitEinr = a.einrichtungsNamen.length > 1;
+    const kopf = ["Datum", "KW", ...(mitEinr ? ["Einrichtung"] : []), "Festgestellt", "Bereiche", "Bemerkung / Nachträge"];
+    pdf.autoTable({
+      startY: y + 3,
+      head: [kopf],
+      body: [...a.maengel].sort((x, z) => x.einrichtungName.localeCompare(z.einrichtungName, "de") || x.datum.localeCompare(z.datum)).map((m) => [
+        `${wochentagKurz(m.datum)} ${fmtDatum(m.datum)}\n${m.uhrzeit} Uhr`, m.kw.replace("KW ", ""), ...(mitEinr ? [m.einrichtungName] : []),
+        m.art, m.bereiche, [m.bemerkung, m.nachtraege && "Nachtrag " + m.nachtraege].filter(Boolean).join("\n")
+      ]),
+      styles: { font: "helvetica", fontSize: 8.5, cellPadding: 1.8, overflow: "linebreak", valign: "top" },
+      headStyles: { fillColor: blau },
+      columnStyles: mitEinr
+        ? { 0: { cellWidth: 24 }, 1: { cellWidth: 14 }, 2: { cellWidth: 34 }, 3: { cellWidth: 24, textColor: rot }, 4: { cellWidth: 30 } }
+        : { 0: { cellWidth: 26 }, 1: { cellWidth: 16 }, 2: { cellWidth: 28, textColor: rot }, 3: { cellWidth: 38 } },
+      margin: { left: rand, right: rand }
+    });
+  }
+
+  y = (pdf.lastAutoTable?.finalY || y) + 12;
+  if (y > 265) { pdf.addPage(); y = 25; }
+  pdf.setFont("helvetica", "normal"); pdf.setFontSize(9.5); pdf.setTextColor(60);
+  pdf.text(pdf.splitTextToSize("Wir bitten um Prüfung und Abstellung der aufgeführten Mängel. Bei Rückfragen wenden Sie sich bitte an den oben genannten Ansprechpartner.", breite - 2 * rand), rand, y);
+
+  const seiten = pdf.getNumberOfPages();
+  for (let i = 1; i <= seiten; i++) {
+    pdf.setPage(i);
+    pdf.setFont("helvetica", "normal"); pdf.setFontSize(8); pdf.setTextColor(120);
+    pdf.text(`${STADT} – Mängelbericht Reinigung – ${a.kwSpanne}`, rand, 289);
+    pdf.text(`Seite ${i} von ${seiten}`, breite - rand, 289, { align: "right" });
+  }
+  return pdf.output("blob");
+}
+
+export async function maengelberichtPerMail(a) {
+  const blob = await erstelleMaengelbericht(a);
+  const datei = new File([blob], dateiname(a, "pdf", "Maengelbericht"), { type: "application/pdf" });
+  const einr = a.einrichtungsNamen.length === 1 ? a.einrichtungsNamen[0] : `${a.einrichtungsNamen.length} Einrichtungen`;
+  const betreff = `Mängelbericht Reinigung ${einr} – ${a.kwSpanne}`;
+  const text = `Sehr geehrte Damen und Herren,\n\nanbei erhalten Sie den Mängelbericht zur Reinigung (${einr}) für den Zeitraum ${fmtDatum(a.von)} bis ${fmtDatum(a.bis)}. Wir bitten um Prüfung und Abstellung der aufgeführten Mängel.\n\nMit freundlichen Grüßen\n${a.erstelltVon}\n${STADT}`;
+  if (navigator.canShare && navigator.canShare({ files: [datei] })) {
+    try { await navigator.share({ files: [datei], title: betreff, text }); return "geteilt"; }
+    catch (e) { if (e.name === "AbortError") return "abgebrochen"; }
+  }
+  herunterladen(blob, datei.name);
+  window.location.href = `mailto:?subject=${encodeURIComponent(betreff)}&body=${encodeURIComponent(text.replace("anbei erhalten Sie", "im Anhang erhalten Sie"))}`;
   return "mailto";
 }

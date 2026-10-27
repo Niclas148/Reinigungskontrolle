@@ -8,6 +8,13 @@ const CHARTJS = "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd
 const FARBE = { ok: "#2E7D4F", mangel: "#B3261E", offen: "#9AA4B1", blau: "#1F3A5F" };
 
 let letzte = null;
+let gespeicherteDaten = null;
+
+/** Fingerabdruck der aktuellen Filtereinstellung */
+function signatur() {
+  return JSON.stringify([$("#a-von").value, $("#a-bis").value, $("#a-nur-maengel").checked,
+    [...document.querySelectorAll("#a-form [name=einr]:checked")].map((h) => h.value)]);
+}
 let diagramme = [];
 
 const iso = (d) => d.toLocaleDateString("sv-SE");
@@ -64,7 +71,7 @@ export function tabAuswertung(inhalt, { einrichtungen, ich }) {
             const liste = einrichtungen.filter((e) => e.typ === t);
             if (!liste.length) return "";
             return `<div><p class="einr-gruppe">${TYP_PLURAL[t]}</p>${liste.map((e) => `
-              <label class="check"><input type="checkbox" name="einr" value="${esc(e.id)}" data-typ="${t}" ${e.aktiv !== false ? "checked" : ""}> ${esc(e.name)}${e.aktiv === false ? ' <span class="hinweis">(inaktiv)</span>' : ""}</label>`).join("")}</div>`;
+              <label class="check"><input type="checkbox" name="einr" value="${esc(e.id)}" data-typ="${t}" data-aktiv="${e.aktiv !== false}" ${e.aktiv !== false ? "checked" : ""}> ${esc(e.name)}${e.aktiv === false ? ' <span class="hinweis">(inaktiv)</span>' : ""}</label>`).join("")}</div>`;
           }).join("")}
         </div>
       </fieldset>
@@ -79,7 +86,8 @@ export function tabAuswertung(inhalt, { einrichtungen, ich }) {
     const w = ev.target.closest("[data-wahl]");
     if (w) {
       const wahl = w.dataset.wahl;
-      haken().forEach((h) => { h.checked = wahl === "alle" ? true : wahl === "keine" ? false : h.dataset.typ === wahl; });
+      // "Alle" und "Nur …" wählen nur aktive Einrichtungen; inaktive bei Bedarf einzeln anhaken
+      haken().forEach((h) => { h.checked = wahl === "keine" ? false : h.dataset.aktiv === "true" && (wahl === "alle" || h.dataset.typ === wahl); });
       if (wahl !== "keine") form.requestSubmit();
       return;
     }
@@ -99,6 +107,14 @@ export function tabAuswertung(inhalt, { einrichtungen, ich }) {
     ev.preventDefault();
     await mitSperre(ev.submitter, () => berechne(einrichtungen, ich));
   });
+  // Jede Änderung am Filter aktualisiert die Auswertung sofort
+  let timer;
+  form.addEventListener("change", (ev) => {
+    if (ev.target.id === "a-kw") return;
+    clearTimeout(timer);
+    timer = setTimeout(() => { if (document.querySelector("#a-form [name=einr]:checked")) form.requestSubmit(); }, 350);
+  });
+  gespeicherteDaten = { einrichtungen, ich };
   form.requestSubmit();
 }
 
@@ -174,17 +190,38 @@ async function berechne(einrichtungen, ich) {
   else auswahl = `${relevant.length} ausgewählte Einrichtungen`;
   const filterTeile = [auswahl];
   if (nurMaengel) filterTeile.push("Einzelkontrollen nur Mängel");
-  letzte = { von, bis, kwSpanne: kwSpanne(von, bis), filterText: filterTeile.join(", "), erstelltVon: ich.name, uebersicht, nachKw, nachBereich, einzel };
+  // Mängelliste für den externen Dienstleister: immer alle Mängel, ohne Namen der Mitarbeiter
+  const maengel = kontrollen.filter((k) => k.z.status === "mangel").map((k) => ({
+    kw: kwText(k.datum), datum: k.datum, einrichtungName: k.einrichtungName, art: artText(k.z), bereiche: k.z.bereiche.join(", "),
+    bemerkung: k.z.bemerkung, nachtraege: k.z.nachtraege.map((n) => nachtragText(n, false)).join(" | "), uhrzeit: fmtZeit(k.erfasstAm)
+  }));
+  letzte = {
+    signatur: signatur(), von, bis, kwSpanne: kwSpanne(von, bis), filterText: filterTeile.join(", "), einrichtungsNamen: relevant.map((e) => e.name),
+    erstelltVon: ich.name, uebersicht, nachKw, nachBereich, einzel, maengel
+  };
 
   const s = uebersicht.reduce((a, z) => ({ soll: a.soll + z.soll, k: a.k + z.kontrollen, m: a.m + z.mangel, o: a.o + z.ohneEintrag }), { soll: 0, k: 0, m: 0, o: 0 });
   const quote = s.k ? Math.round((s.m / s.k) * 100) : 0;
 
   $("#a-ergebnis").innerHTML = `
-    <div class="export-leiste">
-      <button class="btn btn-primaer" type="button" data-export="pdf">PDF herunterladen</button>
-      <button class="btn" type="button" data-export="xlsx">Excel herunterladen</button>
-      <button class="btn" type="button" data-export="mail">Per Mail senden</button>
+    <div class="export-gruppen">
+      <div class="export-gruppe">
+        <p class="export-titel">Interner Bericht <span class="hinweis">mit allen Kennzahlen und Namen</span></p>
+        <div class="export-leiste">
+          <button class="btn btn-primaer" type="button" data-export="pdf">PDF</button>
+          <button class="btn" type="button" data-export="xlsx">Excel</button>
+          <button class="btn" type="button" data-export="mail">Per Mail senden</button>
+        </div>
+      </div>
+      <div class="export-gruppe">
+        <p class="export-titel">Mängelbericht für Dienstleister <span class="hinweis">nur Mängel, ohne Mitarbeiternamen</span></p>
+        <div class="export-leiste">
+          <button class="btn btn-primaer" type="button" data-export="extern-pdf">PDF</button>
+          <button class="btn" type="button" data-export="extern-mail">Per Mail senden</button>
+        </div>
+      </div>
     </div>
+    <p class="hinweis">Berichte enthalten immer genau die oben ausgewählten Einrichtungen und den gewählten Zeitraum.</p>
     <p class="kw">${esc(letzte.kwSpanne)} · ${fmtDatum(von)} bis ${fmtDatum(bis)}</p>
     <div class="zaehler">
       <span><strong>${s.k}</strong>Kontrollen</span>
@@ -198,6 +235,7 @@ async function berechne(einrichtungen, ich) {
       <figure class="panel"><figcaption>Verlauf nach Kalenderwoche</figcaption><div class="d-box"><canvas id="d-kw"></canvas></div></figure>
       <figure class="panel"><figcaption>Mängel nach Bereich</figcaption><div class="d-box">${nachBereich.length ? `<canvas id="d-bereich"></canvas>` : `<p class="leer">Keine Mängel im Zeitraum.</p>`}</div></figure>
     </div>
+    <p class="hinweis" style="margin-top:-.8rem">Diagramm anklicken zum Vergrößern.</p>
 
     <h2>Übersicht je Einrichtung</h2>
     ${relevant.length > 1 ? `<p class="hinweis">Auf einen Namen klicken, um nur diese Einrichtung auszuwerten.</p>` : ""}
@@ -237,13 +275,20 @@ async function berechne(einrichtungen, ich) {
       $("#a-form").scrollIntoView({ behavior: "smooth" });
       return;
     }
+    const gross = ev.target.closest("[data-gross]");
+    if (gross) return zeigeGross(Number(gross.dataset.gross));
     const btn = ev.target.closest("[data-export]");
     if (!btn) return;
-    const a = { ...letzte, diagramme: diagrammBilder() };
+    const art = btn.dataset.export;
     await mitSperre(btn, async () => {
-      if (btn.dataset.export === "pdf") exporter.herunterladen(await exporter.erstellePdf(a), exporter.dateiname(a, "pdf"));
-      else if (btn.dataset.export === "xlsx") exporter.herunterladen(await exporter.erstelleExcel(a), exporter.dateiname(a, "xlsx"));
-      else if ((await exporter.perMail(a)) === "mailto") melde("PDF und Excel wurden heruntergeladen. Bitte im Mailprogramm anhängen.");
+      // Filter geändert, aber noch nicht neu berechnet? Dann zuerst aktualisieren.
+      if (letzte.signatur !== signatur()) await berechne(gespeicherteDaten.einrichtungen, gespeicherteDaten.ich);
+      const a = { ...letzte, diagramme: art.startsWith("extern") ? [] : diagrammBilder() };
+      if (art === "pdf") exporter.herunterladen(await exporter.erstellePdf(a), exporter.dateiname(a, "pdf"));
+      else if (art === "xlsx") exporter.herunterladen(await exporter.erstelleExcel(a), exporter.dateiname(a, "xlsx"));
+      else if (art === "mail") { if ((await exporter.perMail(a)) === "mailto") melde("PDF und Excel wurden heruntergeladen. Bitte im Mailprogramm anhängen."); }
+      else if (art === "extern-pdf") exporter.herunterladen(await exporter.erstelleMaengelbericht(a), exporter.dateiname(a, "pdf", "Maengelbericht"));
+      else if (art === "extern-mail") { if ((await exporter.maengelberichtPerMail(a)) === "mailto") melde("Der Mängelbericht wurde heruntergeladen. Bitte im Mailprogramm anhängen."); }
     });
   };
 }
@@ -313,6 +358,10 @@ async function zeichneDiagramme(a) {
     const cfg = v.config();
     cfg.options.responsive = true;
     diagramme.push(new Chart(c, cfg));
+    const fig = c.closest("figure");
+    fig.dataset.gross = String(vorlagen.indexOf(v));
+    fig.classList.add("klickbar");
+    fig.title = "Zum Vergrößern anklicken";
   }
 }
 
@@ -341,4 +390,41 @@ function diagrammBilder() {
   });
   ablage.remove();
   return bilder;
+}
+
+/** Großansicht eines Diagramms in einem Vollbild-Fenster */
+function zeigeGross(nr) {
+  const v = vorlagen[nr];
+  if (!v) return;
+  const d = document.createElement("dialog");
+  d.className = "gross";
+  d.innerHTML = `
+    <div class="gross-kopf">
+      <h2>${esc(v.titel)}</h2>
+      <span class="hinweis">${esc(letzte.kwSpanne)} · ${esc(letzte.filterText)}</span>
+      <div class="aktionen">
+        <button type="button" class="btn" data-bild>Als Bild speichern</button>
+        <button type="button" class="btn btn-primaer" data-zu>Schließen</button>
+      </div>
+    </div>
+    <div class="gross-flaeche"><canvas></canvas></div>`;
+  document.body.appendChild(d);
+  d.showModal();
+  const cfg = v.config();
+  cfg.options.responsive = true;
+  cfg.options.maintainAspectRatio = false;
+  cfg.options.plugins = { ...cfg.options.plugins, legend: { ...(cfg.options.plugins?.legend || {}), labels: { font: { size: 15 } } } };
+  cfg.options.scales = Object.fromEntries(Object.entries(cfg.options.scales || {}).map(([k, sk]) => [k, { ...sk, ticks: { ...(sk.ticks || {}), font: { size: 14 } } }]));
+  const chart = new window.Chart($("canvas", d), cfg);
+  const schliessen = () => { chart.destroy(); d.close(); };
+  d.addEventListener("close", () => d.remove());
+  d.addEventListener("click", (ev) => {
+    if (ev.target.closest("[data-zu]") || ev.target === d) schliessen();
+    if (ev.target.closest("[data-bild]")) {
+      const a = document.createElement("a");
+      a.href = chart.toBase64Image("image/png", 1);
+      a.download = `${v.titel.replace(/[^A-Za-zÄÖÜäöüß0-9]+/g, "_")}_${letzte.von}_bis_${letzte.bis}.png`;
+      a.click();
+    }
+  });
 }

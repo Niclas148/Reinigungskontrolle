@@ -100,7 +100,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .link { background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; color: var(--blau); }
 
 label { display: block; font-weight: 700; margin-bottom: .25rem; }
-input[type="text"], input[type="password"], input[type="date"], select, textarea {
+input[type="text"], input[type="password"], input[type="date"], input[type="email"], select, textarea {
   width: 100%;
   padding: .6rem .7rem;
   border: 1px solid var(--linie);
@@ -257,3 +257,19 @@ td .link { text-align: left; font: inherit; }
   padding: .5rem max(1.2rem, calc((100% - var(--breite)) / 2 + 1rem)); font-size: .92rem;
 }
 .demo-knoepfe { display: flex; flex-wrap: wrap; gap: .4rem; }
+
+/* Export-Gruppen */
+.export-gruppen { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin: 1rem 0 .4rem; }
+.export-gruppe { background: var(--flaeche); border: 1px solid var(--linie); border-radius: var(--radius); padding: .8rem 1rem; }
+.export-titel { font-weight: 700; margin: 0 0 .2rem; }
+.export-gruppe .export-leiste { margin: .4rem 0 0; }
+
+/* Diagramm-Großansicht */
+.diagramme figure.klickbar { cursor: zoom-in; transition: box-shadow .15s; }
+.diagramme figure.klickbar:hover { box-shadow: 0 2px 12px rgba(20, 30, 45, .15); }
+dialog.gross { width: min(96vw, 1600px); max-width: none; height: 92vh; padding: 1.2rem 1.4rem; display: flex; flex-direction: column; }
+dialog.gross:not([open]) { display: none; }
+.gross-kopf { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem; margin-bottom: .8rem; }
+.gross-kopf h2 { margin: 0; }
+.gross-kopf .aktionen { margin-left: auto; }
+.gross-flaeche { position: relative; flex: 1; min-height: 0; }

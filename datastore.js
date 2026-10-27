@@ -140,13 +140,13 @@ export async function listBenutzer() {
 }
 
 /** Legt ein Login + Profil an, ohne die angemeldete Leitung abzumelden. */
-export async function createBenutzer({ benutzername, passwort, name, vorname, nachname, rolle, einrichtungen }) {
+export async function createBenutzer({ benutzername, passwort, name, vorname, nachname, email, rolle, einrichtungen }) {
   const zweitApp = initializeApp(firebaseConfig, "anlage-" + Date.now());
   const zweitAuth = getAuth(zweitApp);
   try {
     const cred = await createUserWithEmailAndPassword(zweitAuth, loginAdresse(benutzername), passwort);
     await setDoc(doc(db, "benutzer", cred.user.uid), {
-      name, vorname: vorname || "", nachname: nachname || "",
+      name, vorname: vorname || "", nachname: nachname || "", email: email || "",
       benutzername: benutzername.trim().toLowerCase(), rolle,
       einrichtungen: einrichtungen || [], aktiv: true,
       passwortAendern: true
@@ -164,6 +164,15 @@ export async function createBenutzer({ benutzername, passwort, name, vorname, na
 /** Nach dem Pflicht-Passwortwechsel: Merker im eigenen Profil zurücksetzen. */
 export async function passwortWurdeGeaendert(uid) {
   await updateDoc(doc(db, "benutzer", uid), { passwortAendern: false });
+}
+
+/**
+ * "Löschen": Profil wird gesperrt und ausgeblendet. Das Login-Konto selbst kann
+ * nur die Firebase Console bzw. ein Server entfernen; ohne aktives Profil
+ * kommt es aber an keine Daten mehr.
+ */
+export async function loescheBenutzer(uid) {
+  await updateDoc(doc(db, "benutzer", uid), { aktiv: false, geloescht: true, geloeschtAm: new Date().toISOString() });
 }
 
 export async function updateBenutzer(uid, daten) {
