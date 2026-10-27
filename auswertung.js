@@ -117,7 +117,9 @@ async function berechne(einrichtungen, ich) {
     .sort((a, b) => a.datum.localeCompare(b.datum) || a.einrichtungName.localeCompare(b.einrichtungName, "de"));
 
   // Je Einrichtung: Soll = Arbeitstage (ohne Wochenende, Feiertage, bei Grundschulen ohne Ferien)
-  const sollJe = Object.fromEntries(relevant.map((e) => [e.id, new Set(arbeitstage(von, bis, e.typ))]));
+  // Zukünftige Tage zählen nicht als "ohne Eintrag"
+  const sollBis = bis < heute() ? bis : heute();
+  const sollJe = Object.fromEntries(relevant.map((e) => [e.id, new Set(von <= sollBis ? arbeitstage(von, sollBis, e.typ) : [])]));
   const uebersicht = relevant.map((e) => {
     const ks = kontrollen.filter((k) => k.einrichtungId === e.id);
     const tage = new Set(ks.map((k) => k.datum));

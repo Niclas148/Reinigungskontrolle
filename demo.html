@@ -21,8 +21,8 @@
   <div class="demo-leiste" role="region" aria-label="Demo-Modus">
     <span><strong>Demo-Modus</strong> mit erfundenen Beispieldaten. Nichts wird in der echten Datenbank gespeichert.</span>
     <span class="demo-knoepfe">
-      <button type="button" class="btn btn-klein" data-demo="hausmeister">Hausmeister-Ansicht</button>
-      <button type="button" class="btn btn-klein" data-demo="leitung">Leitungs-Ansicht</button>
+      <button type="button" class="btn btn-klein" data-demo="demo-hm-1">Als Hausmeister</button>
+      <button type="button" class="btn btn-klein" data-demo="demo-admin">Als Admin</button>
       <button type="button" class="btn btn-klein" data-demo="reset">Demo zurücksetzen</button>
     </span>
   </div>
@@ -46,14 +46,22 @@
     <p class="laden">Wird geladen …</p>
   </main>
   <div id="meldung" class="meldung" role="status" aria-live="polite"></div>
+  <script>
+    window.DEMO_HINWEIS = `<div class="demo-zugaenge"><strong>Demo-Zugänge</strong>
+      <table><tr><th>Benutzername</th><th>Passwort</th><th>Rolle</th></tr>
+      <tr><td>admin</td><td>demo</td><td>Leitung / Admin</td></tr>
+      <tr><td>p.beispiel</td><td>demo</td><td>Hausmeister (4 Einrichtungen)</td></tr>
+      <tr><td>k.muster</td><td>demo</td><td>Hausmeisterin (5 Einrichtungen)</td></tr>
+      <tr><td>m.neu</td><td>start123</td><td>Neuer Hausmeister, muss Passwort ändern</td></tr></table></div>`;
+  </script>
   <script type="module" src="app.js"></script>
   <script type="module">
-    import { demoRolle, demoZuruecksetzen } from "./demo-datastore.js";
+    import { demoAnmelden, demoZuruecksetzen } from "./demo-datastore.js";
     document.querySelector(".demo-leiste").addEventListener("click", (e) => {
       const b = e.target.closest("[data-demo]");
       if (!b) return;
       if (b.dataset.demo === "reset") { if (confirm("Alle Änderungen in der Demo verwerfen?")) demoZuruecksetzen(); }
-      else demoRolle(b.dataset.demo);
+      else demoAnmelden(b.dataset.demo);
     });
   </script>
   <script>

@@ -20,6 +20,10 @@ Alle Dateien liegen im Hauptverzeichnis des Repos.
 | `manifest.webmanifest`, `sw.js`, `icon-*.png` | Installation als App auf dem Handy |
 | `logo.png` (optional) | Stadtlogo im Kopf; fehlt die Datei, wird nichts angezeigt |
 
+## Demo
+
+`demo.html` zeigt die komplette Seite mit erfundenen Daten (14 Einrichtungen, rund 2,5 Monate Kontrollen, Mängel, Nachträge). Kein Login, kein Firebase; oben in der gelben Leiste zwischen Hausmeister- und Leitungs-Ansicht wechseln. Aufruf: `https://niclas148.github.io/<Repo>/demo.html`
+
 ## Pflege
 
 - **Schulferien:** In `kalender.js` die Liste `FERIEN_SAARLAND` jedes Jahr mit dem Bildungsserver Saarland abgleichen und ergänzen. Feiertage werden automatisch berechnet.

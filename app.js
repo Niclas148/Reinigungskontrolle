@@ -88,6 +88,7 @@ function zeigeLogin(hinweis = "") {
   tabs.hidden = true;
   inhalt.innerHTML = `
     <form class="login panel" id="login-form">
+      <img src="logo.png" alt="Kreisstadt Merzig" class="login-logo" onerror="this.remove()">
       <h1>Reinigungskontrolle</h1>
       <p class="untertitel">Grundschulen und Kitas der Kreisstadt Merzig</p>
       <div class="feld"><label for="l-name">Benutzername</label>
@@ -96,7 +97,8 @@ function zeigeLogin(hinweis = "") {
         <input type="password" id="l-pw" autocomplete="current-password" required></div>
       <p class="fehler" id="l-fehler">${esc(hinweis)}</p>
       <button class="btn btn-primaer" type="submit" style="width:100%">Anmelden</button>
-    </form>`;
+    </form>
+    ${window.DEMO_HINWEIS || ""}`;
   $("#login-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const btn = ev.submitter || $("#login-form button");

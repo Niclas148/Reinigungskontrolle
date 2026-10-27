@@ -25,6 +25,22 @@ const statusText = (s) => (s === "mangel" ? "Mangel" : "In Ordnung");
 const TITEL = "Reinigungskontrolle Grundschulen und Kitas";
 const STADT = "Kreisstadt Merzig";
 
+let logoCache;
+async function ladeLogo() {
+  if (logoCache !== undefined) return logoCache;
+  try {
+    const antwort = await fetch("logo.png");
+    if (!antwort.ok) throw new Error();
+    const daten = await new Promise((ok, fehler) => {
+      const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = fehler;
+      antwort.blob().then((b) => r.readAsDataURL(b));
+    });
+    const bild = await new Promise((ok, fehler) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fehler; i.src = daten; });
+    logoCache = { daten, verhaeltnis: bild.naturalWidth / bild.naturalHeight };
+  } catch { logoCache = null; }
+  return logoCache;
+}
+
 export function dateiname(a, endung) {
   return `Reinigungskontrolle_${a.von}_bis_${a.bis}.${endung}`;
 }
@@ -44,13 +60,20 @@ export async function erstellePdf(a) {
   const breite = 297, rand = 14;
   const s = summe(a);
 
-  // Kopf
+  // Kopf (mit Logo rechts oben, falls logo.png vorhanden)
+  const logo = await ladeLogo();
+  let kwX = breite - rand;
+  if (logo) {
+    const h = 16, w = h * logo.verhaeltnis;
+    pdf.addImage(logo.daten, "PNG", breite - rand - w, 8, w, h);
+    kwX = breite - rand - w - 6;
+  }
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(16);
   pdf.setTextColor(...blau);
   pdf.text(TITEL, rand, 16);
   pdf.setFontSize(11);
-  pdf.text(a.kwSpanne, breite - rand, 16, { align: "right" });
+  pdf.text(a.kwSpanne, kwX, 16, { align: "right" });
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(10);
   pdf.setTextColor(60);
