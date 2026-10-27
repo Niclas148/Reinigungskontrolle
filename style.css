@@ -12,6 +12,9 @@
   --mangel-hell: #FBE6E4;
   --offen: #7A8594;
   --radius: 10px;
+  --breite: 72rem;
+  /* Schrift wächst mit der Bildschirmbreite: 16px am Laptop, bis 21px auf großen Monitoren */
+  font-size: clamp(16px, 0.45vw + 9px, 21px);
   color-scheme: light;
   box-sizing: border-box;
   padding-top: env(safe-area-inset-top, 0px);
@@ -21,7 +24,7 @@
 html, body { margin: 0; }
 body {
   font-family: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
-  font-size: 17px;
+  font-size: 1.0625rem;
   line-height: 1.45;
   background: var(--grund);
   color: var(--text);
@@ -42,7 +45,7 @@ p { margin: 0 0 .8em; }
   gap: .5rem 1.5rem;
   justify-content: space-between;
   align-items: center;
-  padding: .8rem 1.2rem;
+  padding: .8rem max(1.2rem, calc((100% - var(--breite)) / 2 + 1rem));
 }
 .kopf-titel strong { display: block; font-size: 1.15rem; }
 .kopf-titel span { font-size: .85rem; opacity: .8; }
@@ -56,7 +59,7 @@ p { margin: 0 0 .8em; }
   overflow-x: auto;
   background: var(--flaeche);
   border-bottom: 1px solid var(--linie);
-  padding: 0 1rem;
+  padding: 0 max(1rem, calc((100% - var(--breite)) / 2 + .4rem));
 }
 .tabs button {
   border: 0;
@@ -70,14 +73,14 @@ p { margin: 0 0 .8em; }
 }
 .tabs button[aria-current="page"] { color: var(--blau); border-bottom-color: var(--blau); font-weight: 700; }
 
-.inhalt { max-width: 980px; margin: 0 auto; padding: 1.4rem 1rem 4rem; }
+.inhalt { max-width: var(--breite); margin: 0 auto; padding: 1.4rem 1rem 4rem; }
 .laden { color: var(--text-leise); }
 
 /* Buttons & Formulare */
 button, input, select, textarea { font: inherit; color: inherit; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
-  min-height: 46px;
+  min-height: 2.9rem;
   padding: .55rem 1.1rem;
   border-radius: 8px;
   border: 1px solid var(--linie);
@@ -101,13 +104,13 @@ input[type="text"], input[type="password"], input[type="date"], select, textarea
   border: 1px solid var(--linie);
   border-radius: 8px;
   background: #fff;
-  min-height: 46px;
+  min-height: 2.9rem;
 }
 textarea { min-height: 80px; resize: vertical; }
 .feld { margin-bottom: 1rem; }
 .hinweis { font-size: .9rem; color: var(--text-leise); font-weight: 400; }
 .check { display: flex; align-items: center; gap: .6rem; font-weight: 400; padding: .35rem 0; cursor: pointer; }
-.check input { width: 22px; height: 22px; accent-color: var(--mangel); }
+.check input { width: 1.35rem; height: 1.35rem; accent-color: var(--mangel); }
 
 .raster { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); align-items: end; }
 
@@ -206,7 +209,7 @@ dialog::backdrop { background: rgba(20, 30, 45, .45); }
 
 /* ---------- Erweiterungen ---------- */
 .kopf-titel { display: flex; align-items: center; gap: .8rem; }
-.logo { height: 40px; width: auto; background: #fff; border-radius: 4px; padding: 2px; }
+.logo { height: 2.5rem; width: auto; background: #fff; border-radius: 4px; padding: 2px; }
 .kw { color: var(--text-leise); font-weight: 700; font-size: .95rem; margin: 0 0 .2rem; }
 .hinweis-box { background: var(--blau-hell); border-radius: 8px; padding: .6rem .8rem; }
 .gesperrt { font-size: .88rem; color: var(--text-leise); margin: .4rem 0 0; }
@@ -218,7 +221,7 @@ fieldset.gruppe legend { font-weight: 700; padding: 0; margin-bottom: .2rem; }
 .chip { background: var(--mangel-hell); color: var(--mangel); border-radius: 99px; padding: .1rem .6rem; font-size: .85rem; font-weight: 700; }
 .nachtraege { margin: .5rem 0 0; padding-left: 1.1rem; font-size: .92rem; color: var(--text-leise); }
 .einrichtung[data-status="frei"] { border-left-color: var(--linie); opacity: .8; }
-.btn-klein { min-height: 36px; padding: .3rem .7rem; font-size: .9rem; }
+.btn-klein { min-height: 2.25rem; padding: .3rem .7rem; font-size: .9rem; }
 .tag-navi { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
 .tag-navi input { width: auto; }
 .vorlagen { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }

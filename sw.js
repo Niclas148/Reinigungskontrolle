@@ -1,6 +1,6 @@
 // Service Worker: macht die Seite installierbar und lädt die Oberfläche
 // auch bei schwachem Netz. Daten (Firebase) werden NIE zwischengespeichert.
-const CACHE = "reinigung-v1";
+const CACHE = "reinigung-v2";
 const DATEIEN = ["./", "index.html", "style.css", "app.js", "hilfen.js", "kalender.js", "auswertung.js",
   "export.js", "datastore.js", "firebase-config.js", "manifest.webmanifest", "icon-192.png"];
 
