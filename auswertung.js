@@ -51,18 +51,38 @@ export function tabAuswertung(inhalt, { einrichtungen, ich }) {
           <select id="a-kw"><option value="">– wählen –</option>${kwAuswahl()}</select></div>
         <div><label for="a-von">Von</label><input type="date" id="a-von" value="${start.von}" required></div>
         <div><label for="a-bis">Bis</label><input type="date" id="a-bis" value="${start.bis}" required></div>
-        <div><label for="a-typ">Art</label>
-          <select id="a-typ"><option value="">Alle</option>${TYPEN.map((t) => `<option>${t}</option>`).join("")}</select></div>
-        <div><label for="a-einr">Einrichtung</label>
-          <select id="a-einr"><option value="">Alle</option>${einrichtungen.map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join("")}</select></div>
       </div>
+      <fieldset class="einr-wahl">
+        <legend>Einrichtungen</legend>
+        <div class="vorlagen">
+          <button type="button" class="btn btn-klein" data-wahl="alle">Alle</button>
+          ${TYPEN.map((t) => `<button type="button" class="btn btn-klein" data-wahl="${t}">Nur ${TYP_PLURAL[t]}</button>`).join("")}
+          <button type="button" class="btn btn-klein" data-wahl="keine">Keine</button>
+        </div>
+        <div class="einr-spalten">
+          ${TYPEN.map((t) => {
+            const liste = einrichtungen.filter((e) => e.typ === t);
+            if (!liste.length) return "";
+            return `<div><p class="einr-gruppe">${TYP_PLURAL[t]}</p>${liste.map((e) => `
+              <label class="check"><input type="checkbox" name="einr" value="${esc(e.id)}" data-typ="${t}" ${e.aktiv !== false ? "checked" : ""}> ${esc(e.name)}${e.aktiv === false ? ' <span class="hinweis">(inaktiv)</span>' : ""}</label>`).join("")}</div>`;
+          }).join("")}
+        </div>
+      </fieldset>
       <label class="check" style="margin-top:.8rem"><input type="checkbox" id="a-nur-maengel"> In den Einzelkontrollen nur Mängel aufführen</label>
       <button class="btn btn-primaer" type="submit" style="margin-top:.6rem">Auswertung anzeigen</button>
     </form>
     <div id="a-ergebnis"></div>`;
 
   const form = $("#a-form");
+  const haken = () => [...form.querySelectorAll("[name=einr]")];
   form.addEventListener("click", (ev) => {
+    const w = ev.target.closest("[data-wahl]");
+    if (w) {
+      const wahl = w.dataset.wahl;
+      haken().forEach((h) => { h.checked = wahl === "alle" ? true : wahl === "keine" ? false : h.dataset.typ === wahl; });
+      if (wahl !== "keine") form.requestSubmit();
+      return;
+    }
     const b = ev.target.closest("[data-vorlage]");
     if (!b) return;
     const z = vorlage(b.dataset.vorlage);
@@ -85,9 +105,11 @@ export function tabAuswertung(inhalt, { einrichtungen, ich }) {
 async function berechne(einrichtungen, ich) {
   const von = $("#a-von").value, bis = $("#a-bis").value;
   if (von > bis) throw new Error("„Von“ liegt nach „Bis“.");
-  const typ = $("#a-typ").value, einrId = $("#a-einr").value, nurMaengel = $("#a-nur-maengel").checked;
+  const nurMaengel = $("#a-nur-maengel").checked;
+  const gewaehlt = new Set([...document.querySelectorAll("#a-form [name=einr]:checked")].map((h) => h.value));
+  if (!gewaehlt.size) throw new Error("Bitte mindestens eine Einrichtung auswählen.");
 
-  const relevant = einrichtungen.filter((e) => (einrId ? e.id === einrId : e.aktiv !== false) && (!typ || e.typ === typ));
+  const relevant = einrichtungen.filter((e) => gewaehlt.has(e.id));
   const ids = new Set(relevant.map((e) => e.id));
   const kontrollen = (await store.kontrollenZeitraum(von, bis))
     .filter((k) => ids.has(k.einrichtungId))
@@ -101,7 +123,7 @@ async function berechne(einrichtungen, ich) {
     const tage = new Set(ks.map((k) => k.datum));
     const soll = sollJe[e.id];
     return {
-      name: e.name, typ: e.typ,
+      id: e.id, name: e.name, typ: e.typ,
       soll: soll.size,
       kontrollen: ks.length,
       ok: ks.filter((k) => k.z.status === "ok").length,
@@ -141,7 +163,14 @@ async function berechne(einrichtungen, ich) {
     nachtraege: k.z.nachtraege.map(nachtragText).join(" | "), erfasstVon: k.erfasstVonName || "", uhrzeit: fmtZeit(k.erfasstAm)
   }));
 
-  const filterTeile = [einrId ? (relevant[0]?.name || "eine Einrichtung") : typ ? TYP_PLURAL[typ] : "alle Einrichtungen"];
+  const aktive = einrichtungen.filter((e) => e.aktiv !== false);
+  const alleVon = (liste) => liste.length && liste.every((e) => gewaehlt.has(e.id)) && relevant.length === liste.length;
+  let auswahl;
+  if (alleVon(aktive)) auswahl = "alle Einrichtungen";
+  else if (TYPEN.some((t) => alleVon(aktive.filter((e) => e.typ === t)))) auswahl = "alle " + TYP_PLURAL[relevant[0].typ];
+  else if (relevant.length <= 3) auswahl = relevant.map((e) => e.name).join(", ");
+  else auswahl = `${relevant.length} ausgewählte Einrichtungen`;
+  const filterTeile = [auswahl];
   if (nurMaengel) filterTeile.push("Einzelkontrollen nur Mängel");
   letzte = { von, bis, kwSpanne: kwSpanne(von, bis), filterText: filterTeile.join(", "), erstelltVon: ich.name, uebersicht, nachKw, nachBereich, einzel };
 
@@ -163,16 +192,17 @@ async function berechne(einrichtungen, ich) {
     <p class="hinweis">Wochenenden, Feiertage und bei Grundschulen die saarländischen Schulferien zählen nicht als Arbeitstage. Einträge an solchen Tagen werden trotzdem aufgeführt.</p>
 
     <div class="diagramme">
-      <figure class="panel"><figcaption>Kontrollen je Einrichtung</figcaption><div class="d-box" style="height:${Math.max(220, relevant.length * 34 + 60)}px"><canvas id="d-einr"></canvas></div></figure>
+      ${relevant.length > 1 ? `<figure class="panel"><figcaption>Kontrollen je Einrichtung</figcaption><div class="d-box"><canvas id="d-einr"></canvas></div></figure>` : ""}
       <figure class="panel"><figcaption>Verlauf nach Kalenderwoche</figcaption><div class="d-box"><canvas id="d-kw"></canvas></div></figure>
       <figure class="panel"><figcaption>Mängel nach Bereich</figcaption><div class="d-box">${nachBereich.length ? `<canvas id="d-bereich"></canvas>` : `<p class="leer">Keine Mängel im Zeitraum.</p>`}</div></figure>
     </div>
 
     <h2>Übersicht je Einrichtung</h2>
+    ${relevant.length > 1 ? `<p class="hinweis">Auf einen Namen klicken, um nur diese Einrichtung auszuwerten.</p>` : ""}
     <div class="tabelle-wrap"><table>
       <thead><tr><th>Einrichtung</th><th>Art</th><th class="zahl">Arbeitstage</th><th class="zahl">Kontrollen</th><th class="zahl">In Ordnung</th><th class="zahl">Mängel</th><th class="zahl">Ohne Eintrag</th></tr></thead>
       <tbody>${uebersicht.map((z) => `<tr class="${z.mangel ? "zeile-mangel" : ""}">
-        <td>${esc(z.name)}</td><td>${esc(z.typ)}</td><td class="zahl">${z.soll}</td><td class="zahl">${z.kontrollen}</td><td class="zahl">${z.ok}</td>
+        <td>${relevant.length > 1 ? `<button type="button" class="link" data-nur="${esc(z.id)}" title="Nur diese Einrichtung auswerten">${esc(z.name)}</button>` : esc(z.name)}</td><td>${esc(z.typ)}</td><td class="zahl">${z.soll}</td><td class="zahl">${z.kontrollen}</td><td class="zahl">${z.ok}</td>
         <td class="zahl">${z.mangel}</td><td class="zahl">${z.ohneEintrag}</td></tr>`).join("")}</tbody>
     </table></div>
 
@@ -198,6 +228,13 @@ async function berechne(einrichtungen, ich) {
   await zeichneDiagramme(letzte);
 
   $("#a-ergebnis").onclick = async (ev) => {
+    const nur = ev.target.closest("[data-nur]");
+    if (nur) {
+      document.querySelectorAll("#a-form [name=einr]").forEach((h) => { h.checked = h.value === nur.dataset.nur; });
+      $("#a-form").requestSubmit();
+      $("#a-form").scrollIntoView({ behavior: "smooth" });
+      return;
+    }
     const btn = ev.target.closest("[data-export]");
     if (!btn) return;
     const a = { ...letzte, diagramme: diagrammBilder() };
@@ -209,54 +246,97 @@ async function berechne(einrichtungen, ich) {
   };
 }
 
+// Jedes Diagramm wird über eine Fabrik-Funktion erzeugt, damit es für den
+// PDF-Export noch einmal in hoher Auflösung gezeichnet werden kann.
+let vorlagen = [];
+
+function diagrammVorlagen(a) {
+  const basis = { maintainAspectRatio: false, animation: false, plugins: { legend: { position: "bottom" } } };
+  const v = [];
+  if (a.uebersicht.length > 1) v.push({
+    titel: "Kontrollen je Einrichtung", canvas: "#d-einr", hoehe: Math.max(260, a.uebersicht.length * 38 + 90),
+    config: () => ({
+      type: "bar",
+      data: {
+        labels: a.uebersicht.map((z) => z.name),
+        datasets: [
+          { label: "In Ordnung", data: a.uebersicht.map((z) => z.ok), backgroundColor: FARBE.ok },
+          { label: "Mangel", data: a.uebersicht.map((z) => z.mangel), backgroundColor: FARBE.mangel },
+          { label: "Ohne Eintrag", data: a.uebersicht.map((z) => z.ohneEintrag), backgroundColor: FARBE.offen }
+        ]
+      },
+      options: { ...basis, indexAxis: "y", scales: { x: { stacked: true, grace: "5%", ticks: { precision: 0 } }, y: { stacked: true } } }
+    })
+  });
+  v.push({
+    titel: "Verlauf nach Kalenderwoche", canvas: "#d-kw", hoehe: 320,
+    config: () => ({
+      type: "bar",
+      data: {
+        labels: a.nachKw.map((w) => w.kw),
+        datasets: [
+          { label: "In Ordnung", data: a.nachKw.map((w) => w.ok), backgroundColor: FARBE.ok },
+          { label: "Mangel", data: a.nachKw.map((w) => w.mangel), backgroundColor: FARBE.mangel },
+          { label: "Ohne Eintrag", data: a.nachKw.map((w) => w.ohneEintrag), backgroundColor: FARBE.offen }
+        ]
+      },
+      options: { ...basis, scales: { x: { stacked: true }, y: { stacked: true, grace: "8%", ticks: { precision: 0 } } } }
+    })
+  });
+  if (a.nachBereich.length) v.push({
+    titel: "Mängel nach Bereich", canvas: "#d-bereich", hoehe: 320,
+    config: () => ({
+      type: "bar",
+      data: { labels: a.nachBereich.map((b) => b.bereich), datasets: [{ label: "Mängel", data: a.nachBereich.map((b) => b.anzahl), backgroundColor: FARBE.mangel }] },
+      options: { ...basis, plugins: { legend: { display: false } }, scales: { y: { grace: "8%", ticks: { precision: 0 } } } }
+    })
+  });
+  return v;
+}
+
 async function zeichneDiagramme(a) {
   diagramme.forEach((d) => d.destroy());
   diagramme = [];
+  vorlagen = [];
   try { await exporter.ladeSkript(CHARTJS); }
   catch { document.querySelectorAll(".d-box").forEach((b) => (b.innerHTML = `<p class="leer">Diagramme konnten nicht geladen werden.</p>`)); return; }
   const Chart = window.Chart;
   Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
   Chart.defaults.color = "#3A4555";
-  const basis = { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { position: "bottom" } } };
-
-  diagramme.push(new Chart($("#d-einr"), {
-    type: "bar",
-    data: {
-      labels: a.uebersicht.map((z) => z.name),
-      datasets: [
-        { label: "In Ordnung", data: a.uebersicht.map((z) => z.ok), backgroundColor: FARBE.ok },
-        { label: "Mangel", data: a.uebersicht.map((z) => z.mangel), backgroundColor: FARBE.mangel },
-        { label: "Ohne Eintrag", data: a.uebersicht.map((z) => z.ohneEintrag), backgroundColor: FARBE.offen }
-      ]
-    },
-    options: { ...basis, indexAxis: "y", scales: { x: { stacked: true, ticks: { precision: 0 } }, y: { stacked: true } } }
-  }));
-  diagramme.at(-1).titel = "Kontrollen je Einrichtung";
-
-  diagramme.push(new Chart($("#d-kw"), {
-    type: "bar",
-    data: {
-      labels: a.nachKw.map((w) => w.kw.replace("KW ", "KW\u00a0")),
-      datasets: [
-        { label: "In Ordnung", data: a.nachKw.map((w) => w.ok), backgroundColor: FARBE.ok, stack: "k" },
-        { label: "Mangel", data: a.nachKw.map((w) => w.mangel), backgroundColor: FARBE.mangel, stack: "k" },
-        { label: "Ohne Eintrag", data: a.nachKw.map((w) => w.ohneEintrag), backgroundColor: FARBE.offen, stack: "k" }
-      ]
-    },
-    options: { ...basis, scales: { x: { stacked: true }, y: { stacked: true, grace: "8%", ticks: { precision: 0 } } } }
-  }));
-  diagramme.at(-1).titel = "Verlauf nach Kalenderwoche";
-
-  if (a.nachBereich.length) {
-    diagramme.push(new Chart($("#d-bereich"), {
-      type: "bar",
-      data: { labels: a.nachBereich.map((b) => b.bereich), datasets: [{ label: "Mängel", data: a.nachBereich.map((b) => b.anzahl), backgroundColor: FARBE.mangel }] },
-      options: { ...basis, plugins: { legend: { display: false } }, scales: { y: { grace: "8%", ticks: { precision: 0 } } } }
-    }));
-    diagramme.at(-1).titel = "Mängel nach Bereich";
+  vorlagen = diagrammVorlagen(a);
+  for (const v of vorlagen) {
+    const c = $(v.canvas);
+    if (!c) continue;
+    c.parentElement.style.height = v.hoehe + "px";
+    const cfg = v.config();
+    cfg.options.responsive = true;
+    diagramme.push(new Chart(c, cfg));
   }
 }
 
+/** Zeichnet jedes Diagramm unsichtbar in fester Größe und dreifacher Auflösung (scharf im PDF). */
 function diagrammBilder() {
-  return diagramme.map((d) => ({ titel: d.titel, bild: d.toBase64Image("image/png", 1), breite: d.width, hoehe: d.height }));
+  const Chart = window.Chart;
+  if (!Chart || !vorlagen.length) return [];
+  const ablage = document.createElement("div");
+  ablage.style.cssText = "position:fixed;left:-10000px;top:0;";
+  document.body.appendChild(ablage);
+  const breite = 760;
+  const bilder = vorlagen.map((v) => {
+    const hoehe = Math.min(v.hoehe, 520);
+    const canvas = document.createElement("canvas");
+    canvas.style.width = breite + "px";
+    canvas.style.height = hoehe + "px";
+    canvas.width = breite; canvas.height = hoehe;
+    ablage.appendChild(canvas);
+    const cfg = v.config();
+    cfg.options.responsive = false;
+    cfg.options.devicePixelRatio = 3;
+    const ch = new Chart(canvas, cfg);
+    const bild = ch.toBase64Image("image/png", 1);
+    ch.destroy();
+    return { titel: v.titel, bild, breite, hoehe };
+  });
+  ablage.remove();
+  return bilder;
 }

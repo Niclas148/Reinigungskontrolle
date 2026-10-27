@@ -234,3 +234,9 @@ fieldset.gruppe legend { font-weight: 700; padding: 0; margin-bottom: .2rem; }
 .diagramme figcaption { font-weight: 700; margin-bottom: .6rem; }
 .d-box { position: relative; height: 280px; }
 @media (max-width: 560px) { .diagramme { grid-template-columns: 1fr; } }
+
+.einr-wahl { border: 1px solid var(--linie); border-radius: 8px; padding: .8rem 1rem; margin: 1rem 0 0; }
+.einr-wahl legend { font-weight: 700; padding: 0 .3rem; }
+.einr-spalten { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0 1.5rem; }
+.einr-gruppe { font-weight: 700; color: var(--text-leise); margin: .4rem 0 .1rem; }
+td .link { text-align: left; font: inherit; }
